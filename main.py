@@ -160,7 +160,7 @@ if not sweep and not eval:
         elif conv_type == 'mlp':
             model = MLP(n_feats if aggr != 'concat' else 2*n_feats, hidden_dim, output_dim = 1, device = device, dropout_prob=dropout_prob)
     else:
-        model = GNN_LG(n_feats, args, modality = modality, conv_type=conv_type, device = device)
+        model = GNN_LG(n_feats if aggr != 'concat' else 2*n_feats, args, modality = modality, conv_type=conv_type, device = device)
     
 
     prefix = "Sweeps/"
@@ -185,7 +185,7 @@ if not sweep and not eval:
         default_root_dir=tot_dir, callbacks=[compute_metrics, early_stop, checkpoint_callback],
     )
 
-    pl_training_module = TrainingModule(model, lr, wd, aggr, model_family = conv_type, loss_type = loss_type,  ndcgk = ndcgk)
+    pl_training_module = TrainingModule(model, lr, wd, aggr, model_family = conv_type, loss_type = loss_type,  ndcgk = ndcgk, recall = recall, precision = precision)
     trainer.fit(model=pl_training_module, datamodule=pl_dataset)
 
     print("Best model score is:\n", checkpoint_callback.best_model_score.item())
@@ -247,7 +247,7 @@ def compute_runs(config):
                 enable_checkpointing=True
             )
 
-            pl_training_module = TrainingModule(model, config.lr, config.wd, config.aggr, model_family = config.conv_type, loss_type = config.loss_type, ndcgk = ndcgk)
+            pl_training_module = TrainingModule(model, config.lr, config.wd, config.aggr, model_family = config.conv_type, loss_type = config.loss_type, ndcgk = ndcgk, recall = recall, precision = precision)
             trainer.fit(model=pl_training_module, datamodule=pl_dataset)
 
             print("Best model path is:", checkpoint_callback.best_model_path)
@@ -262,7 +262,7 @@ def compute_runs(config):
 
    
 
-            test_model = TrainingModule.load_from_checkpoint(checkpoint_callback.best_model_path, model = model, lr = config.lr, wd = config.wd, aggr = config.aggr, model_family = config.conv_type, loss_type = config.loss_type, ndcgk = ndcgk)
+            test_model = TrainingModule.load_from_checkpoint(checkpoint_callback.best_model_path, model = model, lr = config.lr, wd = config.wd, aggr = config.aggr, model_family = config.conv_type, loss_type = config.loss_type, ndcgk = ndcgk, recall = recall, precision = precision)
 
        
 
@@ -359,7 +359,7 @@ def compute_runs_for_eval():
             enable_checkpointing=True
         )
 
-        pl_training_module = TrainingModule(model, lr, wd, aggr, model_family = conv_type, loss_type = loss_type, ndcgk = ndcgk)
+        pl_training_module = TrainingModule(model, lr, wd, aggr, model_family = conv_type, loss_type = loss_type, ndcgk = ndcgk, recall = recall, precision = precision)
         trainer.fit(model=pl_training_module, datamodule=pl_dataset)
 
         print("Best model path is:", checkpoint_callback.best_model_path)
@@ -374,7 +374,7 @@ def compute_runs_for_eval():
 
 
 
-        test_model = TrainingModule.load_from_checkpoint(checkpoint_callback.best_model_path, model = model, lr = lr, wd = wd, aggr = aggr, model_family = conv_type, loss_type = loss_type, ndcgk = ndcgk)
+        test_model = TrainingModule.load_from_checkpoint(checkpoint_callback.best_model_path, model = model, lr = lr, wd = wd, aggr = aggr, model_family = conv_type, loss_type = loss_type, ndcgk = ndcgk, recall = recall, precision = precision)
 
         trainer.test(test_model, dataloaders=pl_dataset.val_dataloader())
 

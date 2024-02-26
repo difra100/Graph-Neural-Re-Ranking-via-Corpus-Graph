@@ -1,6 +1,6 @@
 import torch
 # Data parameters
-dataset_name = 'trial' # 'Oracolar_Prefer_Minus_Ones_BM25_1000_K_64_TENS_DIM_F_64' 'bm25_1000_k_64_np32' / 'Oracolar_BM25_1000_K_64_TENS_DIM_F_64'
+dataset_name = 'BM25_1300_K_8_TENS_DIM_F_64-20240226T133020Z-001' # BM25_1300_K_16_TENS_DIM_F_64-20240226T140712Z-001 / 'BM25_1300_K_8_TENS_DIM_F_64-20240226T133020Z-001'
 
 project_name = 'Graph Neural Re-Ranking via Corpus Graph'
 entity_name = 'difra00'
@@ -31,6 +31,9 @@ seed = 42
 seed_list = [789, 234, 567, 890, 123]#, 456, 789, 321, 654, 987]
 loss_type = 'listmle'
 ndcgk = [10, 20]
+recall = [10, 20]
+precision = [10, 20]
+
 
 # Hyperparameters
 lr = 0.01
@@ -38,7 +41,7 @@ wd = 0.01
 hidden_dim = 64
 dropout_prob = 0.3
 n_layers = 1
-aggr = 'hadamart'
+aggr = 'concat'
 conv_type = 'gat'
 modality = 'local'
 neighbors = True
@@ -153,19 +156,19 @@ parameters_dict_local = {
         'values': [0, 1e-2]
     },
     'n_layers': {
-        'values': [1, 2, 3, 4]
+        'values': [1, 2, 3]
     },
     'aggr': {
         'values': ['concat', 'sum', 'hadamart']
     },
     'dropout_prob': {
-        'values': [0, 0.3]
+        'values': [0, 0.3, 0.6]
     },
     'conv_type': {
         'values': ['gcn', 'gat', 'mlp']
     },
     'loss_type': {
-        'values': ['mse', 'listnet', 'listmle']
+        'values': ['mse', 'listmle']
     },
     'modality': {
         'values': ['local', 'single']

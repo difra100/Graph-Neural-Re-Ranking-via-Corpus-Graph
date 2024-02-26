@@ -9,6 +9,8 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import Callback, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torchmetrics.functional.retrieval import retrieval_normalized_dcg
+from  torchmetrics.functional import retrieval_recall, retrieval_precision
+
 
 from src.GNN import ListNetLoss, ListMLELoss
 
@@ -45,6 +47,20 @@ class Get_Metrics(Callback):
             pl_module.test_prop['nDCG@'+str(metric)] = []
 
             pl_module.last_metrics.append(test_dcg)
+        
+        for metric in pl_module.recall:
+            test_recall = sum(
+                pl_module.test_prop['recall@'+str(metric)])/len(pl_module.test_prop['recall@'+str(metric)])
+            pl_module.log(name=f'recall@{str(metric)} on test', value=test_recall,
+                    on_epoch=True, prog_bar=True, logger=True)
+            pl_module.test_prop['recall@'+str(metric)] = []
+
+        for metric in pl_module.prec:
+            test_precision = sum(
+                pl_module.test_prop['precision@'+str(metric)])/len(pl_module.test_prop['precision@'+str(metric)])
+            pl_module.log(name=f'precision@{str(metric)} on test', value=test_precision,
+                    on_epoch=True, prog_bar=True, logger=True)
+            pl_module.test_prop['precision@'+str(metric)] = []
             
 
         # Log the metrics
@@ -63,7 +79,7 @@ class Get_Metrics(Callback):
 
 class TrainingModule(pl.LightningModule):
 
-    def __init__(self, model, lr, wd, aggr, model_family, loss_type = 'mse', ndcgk = [10]):
+    def __init__(self, model, lr, wd, aggr, model_family, loss_type = 'mse', ndcgk = [10, 20], recall = [10, 20], precision = [10, 20]):
         super().__init__()
         self.model = model
         self.lr = lr
@@ -71,6 +87,8 @@ class TrainingModule(pl.LightningModule):
         self.aggr = aggr
         self.model_family = model_family
         self.ndcgk = ndcgk
+        self.recall = recall
+        self.prec = precision
 
         if loss_type == 'mse':
             self.loss = nn.MSELoss()
@@ -87,6 +105,14 @@ class TrainingModule(pl.LightningModule):
         for i in self.ndcgk:
             self.train_prop[f'nDCG@{str(i)}'] = [] 
             self.test_prop[f'nDCG@{str(i)}'] = []
+        
+        for i in self.recall:
+            self.train_prop[f'recall@{str(i)}'] = [] 
+            self.test_prop[f'recall@{str(i)}'] = []
+
+        for i in self.prec:
+            self.train_prop[f'precision@{str(i)}'] = [] 
+            self.test_prop[f'precision@{str(i)}'] = []
 
     def training_step(self, batch, batch_idx):
 
@@ -135,14 +161,35 @@ class TrainingModule(pl.LightningModule):
 
 
         out = out.squeeze()      
+        if out[mask].shape[0] == 0:
+            # print("Skip training step")
+            return
         loss = self.loss(out[mask], target[mask])
-  
+
 
         self.train_prop['loss'].append(loss)
 
+        known_target = target[mask]
+        known_out = out[mask]
+
         for metric in self.ndcgk:
-            ndcg = retrieval_normalized_dcg(out[mask], target[mask], k = metric)
+            ndcg = retrieval_normalized_dcg(known_out, known_target, top_k = metric)
             self.train_prop['nDCG@'+str(metric)].append(ndcg)
+ 
+        relevant_out = known_out.squeeze()
+        relevant_target = (known_target.squeeze() > 0)
+      
+        
+        
+        for metric in self.recall:
+            
+            rec = retrieval_recall(relevant_out, relevant_target, top_k = metric)
+
+            self.train_prop['recall@'+str(metric)].append(rec)
+
+        for metric in self.prec:
+            prec = retrieval_precision(relevant_out, relevant_target, top_k=metric)
+            self.train_prop['precision@'+str(metric)].append(prec)
 
         return loss
 
@@ -151,6 +198,7 @@ class TrainingModule(pl.LightningModule):
         if len(self.train_prop['loss']) == 0:
             print("Skip validation check....")
             return
+        
         x, query_feat, A, y, _ = batch
         # print(x.dtype)
         # print(query_feat.dtype)
@@ -192,13 +240,28 @@ class TrainingModule(pl.LightningModule):
         out = out.squeeze()      
         loss = self.loss(out[mask], target[mask])
         self.test_prop['loss'].append(loss)
+
+        known_target = target[mask]
+        known_out = out[mask]
+
         for metric in self.ndcgk:
-
-            
-            ndcg = retrieval_normalized_dcg(out[mask], target[mask], k = metric)
-            
+            ndcg = retrieval_normalized_dcg(known_out, known_target, top_k = metric)
             self.test_prop['nDCG@'+str(metric)].append(ndcg)
+ 
+        relevant_out = known_out.squeeze()
+        relevant_target = (known_target.squeeze() > 0)
+      
+        
+        
+        for metric in self.recall:
+            
+            rec = retrieval_recall(relevant_out, relevant_target, top_k = metric)
 
+            self.test_prop['recall@'+str(metric)].append(rec)
+
+        for metric in self.prec:
+            prec = retrieval_precision(relevant_out, relevant_target, top_k=metric)
+            self.test_prop['precision@'+str(metric)].append(prec)
 
         return loss
     
@@ -238,17 +301,29 @@ class TrainingModule(pl.LightningModule):
         out = out.squeeze()      
         loss = self.loss(out[mask], target[mask])
         self.test_prop['loss'].append(loss)
-        for metric in self.ndcgk:
-            # print(out[mask].shape)
-            # print(out[mask][:20], target[mask][:20])
-            ndcg = retrieval_normalized_dcg(out[mask], target[mask], k = metric)
-            # print(ndcg)
-            # print("DONE")
-            self.test_prop['nDCG@'+str(metric)].append(ndcg)
 
+        known_target = target[mask]
+        known_out = out[mask]
+
+        for metric in self.ndcgk:
+            ndcg = retrieval_normalized_dcg(known_out, known_target, top_k = metric)
+            self.test_prop['nDCG@'+str(metric)].append(ndcg)
+ 
+        relevant_out = known_out.squeeze()
+        relevant_target = (known_target.squeeze() > 0)
+        
+        
+        for metric in self.recall:
+            
+            rec = retrieval_recall(relevant_out, relevant_target, top_k = metric)
+
+            self.test_prop['recall@'+str(metric)].append(rec)
+
+        for metric in self.prec:
+            prec = retrieval_precision(relevant_out, relevant_target, top_k=metric)
+            self.test_prop['precision@'+str(metric)].append(prec)
 
         return loss
-
 
     def configure_optimizers(self):
     
