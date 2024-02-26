@@ -1,0 +1,12 @@
+git+https://github.com/terrierteam/pyterrier_adaptive.git
+git+https://github.com/terrierteam/pyterrier_t5.git
+git+https://github.com/terrierteam/pyterrier_dr.git
+git+https://github.com/allegro/allRank.git
+pyterrier_pisa
+faiss-cpu
+torch==1.12.1
+torchvision==0.13.1 
+torchaudio==0.12.1
+cudatoolkit==11.3
+torch-geometric==2.3.1
+
