@@ -13,6 +13,8 @@ pip install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 --e
 ```
 ```
 pip install -r requirements.txt
+```
 
 ### General Framework
-![image](general_scheme.png)
+Our framework is presented in figure.
+![image](figures/general_scheme.png)
