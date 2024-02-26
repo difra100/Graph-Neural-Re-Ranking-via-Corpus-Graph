@@ -228,9 +228,6 @@ class TrainingModule(pl.LightningModule):
             # print(rep_query.shape)
             x = x * rep_query
 
-
-            
-
         if self.model_family == 'gcn' or self.model_family == 'gat':
             out = self.model(x[0], A[0])
         else:
