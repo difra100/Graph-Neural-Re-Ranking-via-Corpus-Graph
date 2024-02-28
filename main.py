@@ -203,7 +203,7 @@ def compute_runs(config):
     for fold_n in range(len(folds)):
         train_data, val_data = folds[fold_n][0], folds[fold_n][1]
         test_data = None
-        for seed_n in range(len(seed_list)):
+        for seed_n in range(len(seed_list)//2):
             print(f"Fold n° {fold_n} and seed: {seed_n}")
             set_seed(seed_list[seed_n])
 
@@ -333,8 +333,8 @@ def compute_runs_for_eval():
             model = GNN_LG(n_feats if aggr != 'concat' else 2*n_feats, args, modality = modality, conv_type=conv_type, device = device)
 
 
-        prefix = f"Sweeps_{conv_type}/"
-        exp_name = f"{aggr}_{n_layers}_{seed_n}_{lr}_{wd}_{hidden_dim}_{dropout_prob}"
+        prefix = f"Sweeps_{loss_type}_{modality}_{conv_type}/"
+        exp_name = f"{modality}_{conv_type}_{aggr}_{n_layers}_{seed_n}_{lr}_{wd}_{hidden_dim}_{dropout_prob}_{loss_type}"
 
         tot_dir = prefix + exp_name + '/'
 
