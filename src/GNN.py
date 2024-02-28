@@ -122,7 +122,8 @@ class GNN_LG(nn.Module):
         self.conv_type = conv_type
 
         if self.modality == 'local':
-
+            
+            
             self.GNN = GNN_NR(input_features, config, output_dim = config.hidden_dim, device = device)
             self.mlp = MLP(input_features, config.hidden_dim, output_dim = config.hidden_dim, n_layers=config.n_layers, device = device, dropout_prob=config.dropout_prob)
 

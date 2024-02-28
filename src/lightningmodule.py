@@ -234,10 +234,13 @@ class TrainingModule(pl.LightningModule):
             out = self.model(x[0])
 
 
-        out = out.squeeze()      
+        out = out.squeeze()
+        if out[mask].shape[0] == 0:
+            # print("Skip training step")
+            return      
         loss = self.loss(out[mask], target[mask])
         self.test_prop['loss'].append(loss)
-
+        
         known_target = target[mask]
         known_out = out[mask]
 
@@ -295,7 +298,10 @@ class TrainingModule(pl.LightningModule):
         else:
             out = self.model(x[0])
 
-        out = out.squeeze()      
+        out = out.squeeze()  
+        if out[mask].shape[0] == 0:
+            # print("Skip training step")
+            return    
         loss = self.loss(out[mask], target[mask])
         self.test_prop['loss'].append(loss)
 

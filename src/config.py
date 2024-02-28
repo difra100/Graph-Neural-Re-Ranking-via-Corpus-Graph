@@ -51,106 +51,18 @@ sweep_config = {
     'method': 'grid'
 }
 
-sweep_config['metric'] = {'name': 'AUROC on test (Mean)',
+sweep_config['metric'] = {'name': 'nDCG@10 on test (Mean)',
                           'goal': 'maximize'
                          }
 
-parameters_dict_gcn = {
-    'lr': {
-        'values': [1e-2, 1e-3]
-    },
-    'hidden_dim': {
-        'values': [64, 128, 256]
-    },
-    'wd': {
-        'values': [0, 1e-2]
-    },
-    'n_layers': {
-        'values': [1, 2, 3]
-    },
-    'aggr': {
-        'values': ['hadamart']
-    },
-    'dropout_prob': {
-        'values': [0, 0.3]
-    },
-    'neighbors': {
-        'values': [True]
-    },
-    'conv_type': {
-        'values': ['gcn']
-    },
-    'loss_type': {
-        'values': ['mse', 'listnet', 'listmle']
-    }
-}
 
-parameters_dict_gat = { # 648
-    'lr': {
-        'values': [1e-2, 1e-3]
-    },
-    'hidden_dim': {
-        'values': [64, 128, 256]
-    },
-    'wd': {
-        'values': [0, 1e-2]
-    },
-    'n_layers': {
-        'values': [1, 2, 3]
-    },
-    'aggr': {
-        'values': ['hadamart']
-    },
-    'dropout_prob': {
-        'values': [0, 0.3]
-    },
-    'neighbors': {
-        'values': [True]
-    },
-    'conv_type': {
-        'values': ['gat']
-    },
-    'heads': {
-        'values': [1, 2, 4]
-    },
-    'loss_type': {
-        'values': ['mse', 'listnet', 'listmle']
-    }
-}
-
-parameters_dict_MLP = {
-    'lr': {
-        'values': [1e-2, 1e-3]
-    },
-    'hidden_dim': {
-        'values': [64, 128, 256]
-    },
-    'wd': {
-        'values': [0, 1e-2]
-    },
-    'n_layers': {
-        'values': [1, 2, 3]
-    },
-    'aggr': {
-        'values': ['hadamart']
-    },
-    'dropout_prob': {
-        'values': [0, 0.3]
-    },
-    'conv_type': {
-        'values': ['mlp']
-    },
-    'loss_type': {
-        'values': ['mse', 'listnet', 'listmle']
-    }
-}
 
 parameters_dict_local = {
     'lr': {
         'values': [1e-2, 1e-3]
     },
     'hidden_dim': {
-        'values': [64, 128, 256]
+        'values': [256]
     },
     'wd': {
         'values': [0, 1e-2]
@@ -159,10 +71,10 @@ parameters_dict_local = {
         'values': [1, 2, 3]
     },
     'aggr': {
-        'values': ['concat', 'sum', 'hadamart']
+        'values': ['concat', 'hadamart']
     },
     'dropout_prob': {
-        'values': [0, 0.3, 0.6]
+        'values': [0]
     },
     'conv_type': {
         'values': ['gcn', 'gat', 'mlp']
@@ -177,6 +89,6 @@ parameters_dict_local = {
         'values': [True]
     },
     'heads': {
-        'values': [1, 2, 4]
+        'values': [1]
     }
 }
