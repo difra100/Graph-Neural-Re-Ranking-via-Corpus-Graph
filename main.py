@@ -143,13 +143,13 @@ if not sweep and not eval:
     set_seed(seed)
     
 
-    train_data = [dataset[x] for x in range(dataset_length) for i in train_indices if i == dataset[x]['q_ids']]
+    train_data = [dataset[x] for i in train_indices for x in range(dataset_length) if i == dataset[x]['q_ids'] ]
 
-    val_data = [dataset[x] for x in range(dataset_length) for i in val_indices if i == dataset[x]['q_ids']]
+    val_data = [dataset[x] for i in val_indices for x in range(dataset_length) if i == dataset[x]['q_ids']]
 
-    test_data = [dataset[x] for x in range(dataset_length) for i in test_indices if i == dataset[x]['q_ids']]
+    test_data = [dataset[x] for i in test_indices for x in range(dataset_length) if i == dataset[x]['q_ids']]
 
-
+    
 
 
     pl_dataset = DataModule(train_data, val_data, test_data, mode, batch_size)
@@ -200,10 +200,10 @@ def compute_runs(config):
     
     print(f"Hyperparameters tuning initialized....{config.conv_type}.type..............")
     
-    train_data = [dataset[x] for x in range(dataset_length) for i in train_indices if i == dataset[x]['q_ids']]
+    train_data = [dataset[x] for i in train_indices for x in range(dataset_length) if i == dataset[x]['q_ids'] ]
 
-    val_data = [dataset[x] for x in range(dataset_length) for i in val_indices if i == dataset[x]['q_ids']]
-    
+    val_data = [dataset[x] for i in val_indices for x in range(dataset_length) if i == dataset[x]['q_ids']]
+
     fold_split = train_data + val_data
     folds = k_fold_cross_validation(fold_split, k = 5, random_seed=42)
     metrics = {f'nDCG@{str(i)}': [] for i in ndcgk}
@@ -322,13 +322,12 @@ def compute_runs_for_eval():
         metrics[f'precision@{str(metric)}'] = []
 
     print("METRICS: ", metrics)
-    
-    train_data = [dataset[x] for x in range(dataset_length) for i in train_indices if i == dataset[x]['q_ids']]
+ 
+    train_data = [dataset[x] for i in train_indices for x in range(dataset_length) if i == dataset[x]['q_ids'] ]
 
-    val_data = [dataset[x] for x in range(dataset_length) for i in val_indices if i == dataset[x]['q_ids']]
+    val_data = [dataset[x] for i in val_indices for x in range(dataset_length) if i == dataset[x]['q_ids']]
 
-    test_data = [dataset[x] for x in range(dataset_length) for i in test_indices if i == dataset[x]['q_ids']]
-
+    test_data = [dataset[x] for i in test_indices for x in range(dataset_length) if i == dataset[x]['q_ids']]
 
     best_seed = 0
     best_ndcg = 0
@@ -377,7 +376,7 @@ def compute_runs_for_eval():
             gpus=num_gpus,  # the number of gpus we have at our disposal.
             default_root_dir= tot_dir, callbacks=[compute_metrics, early_stop, checkpoint_callback],
         # logger=wandb_logger,
-            enable_checkpointing=True
+            enable_checkpointing=True, deterministic = True
         )
 
         pl_training_module = TrainingModule(model, lr, wd, aggr, model_family = conv_type, loss_type = loss_type, ndcgk = ndcgk, recall = recall, precision = precision)
