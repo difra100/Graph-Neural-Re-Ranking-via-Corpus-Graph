@@ -99,15 +99,15 @@ loss_type = args.loss_type
 modality = args.modality
 
 
-if modality == 'single':
-    if conv_type == 'gcn':
-        parameters_dict = parameters_dict_gcn
-    elif conv_type == 'gat': 
-        parameters_dict = parameters_dict_gat
-    elif conv_type == 'mlp':
-        parameters_dict = parameters_dict_MLP
-elif modality == 'local':
-    parameters_dict = parameters_dict_local
+# if modality == 'single':
+#     if conv_type == 'gcn':
+#         parameters_dict = parameters_dict_gcn
+#     elif conv_type == 'gat': 
+#         parameters_dict = parameters_dict_gat
+#     elif conv_type == 'mlp':
+#         parameters_dict = parameters_dict_MLP
+# elif modality == 'local':
+parameters_dict = parameters_dict_local
 
 
 
@@ -279,6 +279,8 @@ def compute_runs(config):
                 ndcg = sum(test_model.test_prop['nDCG@'+str(metric)])/len(test_model.test_prop['nDCG@'+str(metric)])
 
                 metrics[f'nDCG@{str(metric)}'].append(ndcg.detach().cpu().item())
+            
+           
 
             del model
         
@@ -301,6 +303,13 @@ def compute_runs(config):
 def compute_runs_for_eval():
     print("Test initialized..........................")
     metrics = {f'nDCG@{str(i)}': [] for i in ndcgk}
+
+    for metric in recall:
+        metrics[f'recall@{str(metric)}'] = []
+    
+    for metric in precision:    
+        metrics[f'precision@{str(metric)}'] = []
+
     print("METRICS: ", metrics)
     train_data = dataset[:int(dataset_length*train_perc)]
     # print([i['q_ids'] for i in train_data])
@@ -395,6 +404,13 @@ def compute_runs_for_eval():
             ndcg = sum(test_model.test_prop['nDCG@'+str(metric)])/len(test_model.test_prop['nDCG@'+str(metric)])
 
             metrics[f'nDCG@{str(metric)}'].append(ndcg.detach().cpu().item())
+        for metric in recall:
+            rec = sum(test_model.test_prop['recall@'+str(metric)])/len(test_model.test_prop['recall@'+str(metric)])
+            metrics[f'recall@{str(metric)}'].append(rec.detach().cpu().item())
+
+        for metric in precision:
+            prec = sum(test_model.test_prop['precision@'+str(metric)])/len(test_model.test_prop['precision@'+str(metric)])
+            metrics[f'precision@{str(metric)}'].append(prec.detach().cpu().item())
 
         del model
         del pl_training_module
@@ -460,7 +476,7 @@ elif eval and not sweep:
     print("Testing modalities")
     metrics, best_seed, best_ndcg = compute_runs_for_eval()
     
-
+    print("nDCG metrics: \n")
     for metric in ndcgk:
 
         metric_current = metrics[f'nDCG@{str(metric)}']
@@ -468,6 +484,20 @@ elif eval and not sweep:
         mean, std = np.mean(metrics_array), np.std(metrics_array)
         print("MEAN AND STANDARD DEVIATION: {} +- {}".format(mean, std))
         print("Best Seed and best nDCG@{} are: {} ; {}".format(str(metric), best_seed, best_ndcg))
+    
+    print("RECALL metrics: \n")
+    for metric in recall:
+        metric_current = metrics[f'recall@{str(metric)}']
+        metrics_array = np.array(metric_current)
+        mean, std = np.mean(metrics_array), np.std(metrics_array)
+        print("MEAN AND STANDARD DEVIATION: {} +- {}".format(mean, std))
+    
+    print("PRECISION metrics: \n")
+    for metric in precision:
+        metric_current = metrics[f'precision@{str(metric)}']
+        metrics_array = np.array(metric_current)
+        mean, std = np.mean(metrics_array), np.std(metrics_array)
+        print("MEAN AND STANDARD DEVIATION: {} +- {}".format(mean, std))
 
     
 

@@ -17,4 +17,4 @@ pip install -r requirements.txt
 
 ### General Framework
 Our framework is presented in figure.
-![image](figures/general_scheme.png)
+![image](figures/general_scheme_2.png)
