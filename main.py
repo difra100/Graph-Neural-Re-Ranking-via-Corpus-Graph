@@ -199,7 +199,13 @@ if not sweep and not eval:
 def compute_runs(config):
     
     print(f"Hyperparameters tuning initialized....{config.conv_type}.type..............")
-    folds = k_fold_cross_validation(dataset[:int(dataset_length*(1-test_perc))], k = 5, random_seed=42)
+    
+    train_data = [dataset[x] for x in range(dataset_length) for i in train_indices if i == dataset[x]['q_ids']]
+
+    val_data = [dataset[x] for x in range(dataset_length) for i in val_indices if i == dataset[x]['q_ids']]
+    
+    fold_split = train_data + val_data
+    folds = k_fold_cross_validation(fold_split, k = 5, random_seed=42)
     metrics = {f'nDCG@{str(i)}': [] for i in ndcgk}
     if config.modality == 'local' and config.conv_type == 'mlp':
         print("No possible")
