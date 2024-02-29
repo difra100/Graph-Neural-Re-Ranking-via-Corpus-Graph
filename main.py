@@ -18,6 +18,7 @@ from src.datamodule import *
 from src.lightningmodule import * 
 from src.GNN import *
 
+import json
 
 
 parser = argparse.ArgumentParser()
@@ -131,21 +132,25 @@ else:
 
 dataset_length = len(dataset)
 
+train_indices = json.load(open(f'./data/{dataset_name}/train_indices.json'))
 
+val_indices = json.load(open(f'./data/{dataset_name}/val_indices.json'))
 
+test_indices = json.load(open(f'./data/{dataset_name}/test_indices.json'))
 
 if not sweep and not eval:
 
     set_seed(seed)
     
-    train_data = dataset[:int(dataset_length*train_perc)]
-    # print([i['q_ids'] for i in train_data])
 
-    val_data = dataset[int(dataset_length*train_perc): int(dataset_length*train_perc + dataset_length*val_perc)]
-    # print([i['q_ids'] for i in val_data])
+    train_data = [dataset[x] for x in range(dataset_length) for i in train_indices if i == dataset[x]['q_ids']]
 
-    test_data = dataset[int(dataset_length*train_perc + dataset_length*val_perc):]
-    # print([i['q_ids'] for i in test_data])
+    val_data = [dataset[x] for x in range(dataset_length) for i in val_indices if i == dataset[x]['q_ids']]
+
+    test_data = [dataset[x] for x in range(dataset_length) for i in test_indices if i == dataset[x]['q_ids']]
+
+
+
 
     pl_dataset = DataModule(train_data, val_data, test_data, mode, batch_size)
 
@@ -311,13 +316,14 @@ def compute_runs_for_eval():
         metrics[f'precision@{str(metric)}'] = []
 
     print("METRICS: ", metrics)
-    train_data = dataset[:int(dataset_length*train_perc)]
-    # print([i['q_ids'] for i in train_data])
+    
+    train_data = [dataset[x] for x in range(dataset_length) for i in train_indices if i == dataset[x]['q_ids']]
 
-    val_data = dataset[int(dataset_length*train_perc): int(dataset_length*train_perc + dataset_length*val_perc)]
-    # print([i['q_ids'] for i in val_data])
+    val_data = [dataset[x] for x in range(dataset_length) for i in val_indices if i == dataset[x]['q_ids']]
 
-    test_data = dataset[int(dataset_length*train_perc + dataset_length*val_perc):]
+    test_data = [dataset[x] for x in range(dataset_length) for i in test_indices if i == dataset[x]['q_ids']]
+
+
     best_seed = 0
     best_ndcg = 0
 

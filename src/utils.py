@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 import os
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import KFold
+import re
 
 def set_seed(seed_value):
     # Set seed for NumPy
@@ -85,13 +86,20 @@ def retrieve_dataset_from_file(dataset_name):
     dataset = []
     path = f'./data/{dataset_name}/tensors/'
     list_of_files = os.listdir(path)
+    pattern = r'\d+'
+
+
     for file in list_of_files:
+        
         diz = {}
         adj_matr = torch.load(path + file + '/adjacency_matrix.pt')
         doc_feat = torch.load(path + file + '/doc_feat_tensor.pt').float()
         qrels_tensor = torch.load(path + file + '/qrels_tensor.pt').float()
         query_tensor = torch.load(path + file + '/query_tensor.pt').float()
-        qid = int(file[4])
+        
+        match = re.search(pattern, file)
+        qid = int(match.group())
+   
         diz['doc_feat'] = doc_feat
         diz['adj_matrix'] = adj_matr
         diz['q_ids'] = qid
@@ -99,6 +107,7 @@ def retrieve_dataset_from_file(dataset_name):
         diz['query_feat'] = query_tensor
 
         dataset.append(diz)
+
     return dataset
 
 
@@ -132,3 +141,30 @@ def k_fold_cross_validation(elements, k=5, random_seed=None):
         fold_sets.append((train_set, val_set))
 
     return fold_sets
+
+
+# Save new indices
+# q_id_list = [i['q_ids'] for i in dataset]
+
+# train_indices = q_id_list[:int(dataset_length*train_perc)]
+
+# val_indices = q_id_list[int(dataset_length*train_perc): int(dataset_length*train_perc + dataset_length*val_perc)]
+
+# test_indices = q_id_list[int(dataset_length*train_perc + dataset_length*val_perc):]
+
+
+
+# # Create json file for train split
+# train_indices_file = "./data/train_indices.json"
+# with open(train_indices_file, "w") as f:
+#     json.dump(train_indices, f)
+
+# # Create json file for validation split
+# val_indices_file = "./data/val_indices.json"
+# with open(val_indices_file, "w") as f:
+#     json.dump(val_indices, f)
+
+# # Create json file for test split
+# test_indices_file = "./data/test_indices.json"
+# with open(test_indices_file, "w") as f:
+#     json.dump(test_indices, f)
