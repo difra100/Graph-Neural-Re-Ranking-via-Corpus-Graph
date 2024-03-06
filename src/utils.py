@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.model_selection import KFold
 import re
 
+
 def set_seed(seed_value):
     # Set seed for NumPy
     # np.random.seed(seed_value)
@@ -80,6 +81,7 @@ def coo_to_adjacency_matrix(coo_matrix):
 
 def adj_matrix_to_coo(adj):
     return torch.nonzero(adj).T
+
 
 
 def retrieve_dataset_from_file(dataset_name):

@@ -200,6 +200,8 @@ class TrainingModule(pl.LightningModule):
             return
         
         x, query_feat, A, y, _ = batch
+
+
         # print(x.dtype)
         # print(query_feat.dtype)
         # print(A.dtype)
@@ -229,6 +231,7 @@ class TrainingModule(pl.LightningModule):
             x = x * rep_query
 
         if self.model_family == 'gcn' or self.model_family == 'gat':
+
             out = self.model(x[0], A[0])
         else:
             out = self.model(x[0])

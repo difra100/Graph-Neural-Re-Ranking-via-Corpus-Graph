@@ -151,7 +151,6 @@ if not sweep and not eval:
 
     
 
-
     pl_dataset = DataModule(train_data, val_data, test_data, mode, batch_size)
 
     if modality == 'local' and conv_type == 'mlp':
@@ -187,7 +186,7 @@ if not sweep and not eval:
     trainer = pl.Trainer(
         max_epochs=epochs if aggr != 'tctcolbert' else 1,  # maximum number of epochs.
         gpus=num_gpus,  # the number of gpus we have at our disposal.
-        default_root_dir=tot_dir, callbacks=[compute_metrics, early_stop, checkpoint_callback],
+        default_root_dir=tot_dir, callbacks=[compute_metrics, early_stop, checkpoint_callback], deterministic = True if device == 'cpu' else False  
     )
 
     pl_training_module = TrainingModule(model, lr, wd, aggr, model_family = conv_type, loss_type = loss_type,  ndcgk = ndcgk, recall = recall, precision = precision)
@@ -255,7 +254,7 @@ def compute_runs(config):
                 gpus=num_gpus,  # the number of gpus we have at our disposal.
                 default_root_dir= tot_dir, callbacks=[compute_metrics, early_stop, checkpoint_callback],
             # logger=wandb_logger,
-                enable_checkpointing=True
+                enable_checkpointing=True, deterministic = True if device == 'cpu' else False
             )
 
             pl_training_module = TrainingModule(model, config.lr, config.wd, config.aggr, model_family = config.conv_type, loss_type = config.loss_type, ndcgk = ndcgk, recall = recall, precision = precision)
@@ -376,7 +375,7 @@ def compute_runs_for_eval():
             gpus=num_gpus,  # the number of gpus we have at our disposal.
             default_root_dir= tot_dir, callbacks=[compute_metrics, early_stop, checkpoint_callback],
         # logger=wandb_logger,
-            enable_checkpointing=True, deterministic = True
+            enable_checkpointing=True, deterministic = True if device == 'cpu' else False
         )
 
         pl_training_module = TrainingModule(model, lr, wd, aggr, model_family = conv_type, loss_type = loss_type, ndcgk = ndcgk, recall = recall, precision = precision)
