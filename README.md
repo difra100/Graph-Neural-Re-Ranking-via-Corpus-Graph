@@ -9,7 +9,8 @@ conda create -n GNRR python=3.8 && conda activate GNRR && conda install pip
 ```
 ### Get the required libraries following these bash commands
 ```
-pip install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu113
+pip install torch==1.12.1+cu113 --extra-index-url https://download.pytorch.org/whl/cu113 && pip install torch_geometric==2.3.1 && pip install torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-1.12.1.html
+
 ```
 ```
 pip install -r requirements.txt

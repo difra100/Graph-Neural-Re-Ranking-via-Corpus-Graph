@@ -5,90 +5,79 @@ from sklearn import metrics
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.callbacks import Callback, ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
-from torchmetrics.functional.retrieval import retrieval_normalized_dcg
-from  torchmetrics.functional import retrieval_recall, retrieval_precision
-
+from pytorch_lightning.callbacks import Callback
+from allrank.models.losses.lambdaLoss import lambdaLoss
+from allrank.data.dataset_loading import PADDED_Y_VALUE
 
 from src.GNN import ListNetLoss, ListMLELoss
+from src.utils import *
+from src.config import IGNORE_INDEX, MAX_DOCS, MAX_EDGES 
+
 
 
 class Get_Metrics(Callback):
 
     def on_train_epoch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule"):
        
-        # Compute the metrics
-        train_loss = sum(
-            pl_module.train_prop['loss']) / len(pl_module.train_prop['loss'])
-            
-        for metric in pl_module.ndcgk:
-            train_dcg = sum(
-                pl_module.train_prop['nDCG@'+str(metric)])/len(pl_module.train_prop['nDCG@'+str(metric)])
-            pl_module.log(name=f'nDCG@{str(metric)} on train', value=train_dcg,
-                    on_epoch=True, prog_bar=True, logger=True)
-            pl_module.train_prop['nDCG@'+str(metric)] = []
-        pl_module.log(name='Loss on train', value=train_loss,
-                    on_epoch=True, prog_bar=True, logger=True)
-            
-        
-        test_loss = sum(
-            pl_module.test_prop['loss']) / len(pl_module.test_prop['loss'])
+
+        diz_test = get_performance_metrics(pl_module.qrels_folder, pl_module.eval_indices, pl_module.doc_test_df)
+
+        pl_module.doc_test_df = pd.DataFrame(columns=['query_id', 'doc_id', 'score', 'rank'])
+
         
         pl_module.last_metrics = []
 
-        for metric in pl_module.ndcgk:    
-            test_dcg = sum(
-                pl_module.test_prop['nDCG@'+str(metric)])/len(pl_module.test_prop['nDCG@'+str(metric)])
+        test_dcg = diz_test[nDCG@10]
  
-            pl_module.log(name=f'nDCG@{str(metric)} on test', value=test_dcg,
-                    on_epoch=True, prog_bar=True, logger=True)
-            pl_module.test_prop['nDCG@'+str(metric)] = []
-
-            pl_module.last_metrics.append(test_dcg)
-        
-        for metric in pl_module.recall:
-            test_recall = sum(
-                pl_module.test_prop['recall@'+str(metric)])/len(pl_module.test_prop['recall@'+str(metric)])
-            pl_module.log(name=f'recall@{str(metric)} on test', value=test_recall,
-                    on_epoch=True, prog_bar=True, logger=True)
-            pl_module.test_prop['recall@'+str(metric)] = []
-
-        for metric in pl_module.prec:
-            test_precision = sum(
-                pl_module.test_prop['precision@'+str(metric)])/len(pl_module.test_prop['precision@'+str(metric)])
-            pl_module.log(name=f'precision@{str(metric)} on test', value=test_precision,
-                    on_epoch=True, prog_bar=True, logger=True)
-            pl_module.test_prop['precision@'+str(metric)] = []
-            
-
-        # Log the metrics
-        pl_module.log(name='Loss on test', value=test_loss,
+        pl_module.log(name=f'nDCG@{str(10)} on test', value=test_dcg,
                 on_epoch=True, prog_bar=True, logger=True)
+
+        pl_module.last_metrics.append(test_dcg)
+    
+        test_p3 = diz_test[P(rel = 2)@3]   
+
+        pl_module.log(name=f'P(rel = 2)@{str(3)} on test', value=test_p3,
+                on_epoch=True, prog_bar=True, logger=True)
+
+        test_ap = diz_test[AP(rel = 2)]   
+        
+        pl_module.log(name=f'AP(rel = 2) on test', value=test_ap,
+                on_epoch=True, prog_bar=True, logger=True)        
+
+        test_rr = diz_test[RR(rel = 2)]   
+        
+        pl_module.log(name=f'RR(rel = 2) on test', value=test_rr,
+                on_epoch=True, prog_bar=True, logger=True)        
+
+        
         
 
-
-        # Re-initialize the metrics
         pl_module.train_prop['loss'] = []
 
         pl_module.test_prop['loss'] = []
 
- 
-
 
 class TrainingModule(pl.LightningModule):
 
-    def __init__(self, model, lr, wd, aggr, model_family, loss_type = 'mse', ndcgk = [10, 20], recall = [10, 20], precision = [10, 20]):
+    def __init__(self, model, lr, wd, aggr, model_family, dataset_name, K_cg = 8, fast_train = False, qrels_folder = '', loss_type = 'mse', eval_indices= '', exp_name = ''):
         super().__init__()
         self.model = model
         self.lr = lr
         self.wd = wd
         self.aggr = aggr
         self.model_family = model_family
-        self.ndcgk = ndcgk
-        self.recall = recall
-        self.prec = precision
+        self.dataset_name = dataset_name
+        self.K_cg = K_cg
+        self.exp_name = exp_name
+
+
+        self.qrels_folder = qrels_folder
+            
+
+        self.best_metric = 0
+        self.loss_type = loss_type
+        self.eval_indices = eval_indices
+        self.fast_train = fast_train
 
         if loss_type == 'mse':
             self.loss = nn.MSELoss()
@@ -98,100 +87,114 @@ class TrainingModule(pl.LightningModule):
         
         elif loss_type == 'listmle':
             self.loss = ListMLELoss()
+        
+        elif loss_type == 'ranknet' or loss_type == 'lambdarank':
+            self.out = torch.tensor([], device = 'cuda' if torch.cuda.is_available() else 'cpu')
+            self.target = torch.tensor([], device = 'cuda' if torch.cuda.is_available() else 'cpu')
+
+        
 
         self.train_prop = {'loss': []}
         self.test_prop = {'loss': []}
 
-        for i in self.ndcgk:
-            self.train_prop[f'nDCG@{str(i)}'] = [] 
-            self.test_prop[f'nDCG@{str(i)}'] = []
-        
-        for i in self.recall:
-            self.train_prop[f'recall@{str(i)}'] = [] 
-            self.test_prop[f'recall@{str(i)}'] = []
 
-        for i in self.prec:
-            self.train_prop[f'precision@{str(i)}'] = [] 
-            self.test_prop[f'precision@{str(i)}'] = []
+        self.doc_train_df = pd.DataFrame(columns=['query_id', 'doc_id', 'score', 'rank'])
+        self.doc_test_df = pd.DataFrame(columns=['query_id', 'doc_id', 'score', 'rank'])
+        self.doc_test_df = pd.DataFrame(columns=['query_id', 'doc_id', 'score', 'rank'])
+
 
     def training_step(self, batch, batch_idx):
 
-        x, query_feat, A, y, _ = batch
-        
-
-        # print(x.dtype)
-        # print(query_feat.dtype)
-        # print(A.dtype)
-        # print(y.dtype)
-
-        target = y[0].squeeze()
-
-
-        mask = torch.nonzero(target!=-1)
+        X, Query_feat, Adj, Y, Qid, original_dims, index_to_docno_batch = batch
 
         
-        if self.aggr == 'concat':
-            rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
-
-            x = torch.cat((x, rep_query), dim = -1)
-
-        elif self.aggr == 'sum':
+        loss = 0
         
+        for sample_idx in range(X.shape[0]):
 
-            rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
-        
-            # print(rep_query.shape)
-            x = x + rep_query
-
-        elif self.aggr == 'hadamart':
-        
-
-            rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
-        
-            # print(rep_query.shape)
-            x = x * rep_query
- 
-            
-
+            x = X[sample_idx].unsqueeze(0)
+            query_feat = Query_feat[sample_idx].unsqueeze(0)
+            A = Adj[sample_idx].unsqueeze(0)
+            y = Y[sample_idx].unsqueeze(0)
+            qid = Qid[sample_idx].item()
   
-        if self.model_family == 'gcn' or self.model_family == 'gat':
-            out = self.model(x[0], A[0])
-        else:
-            out = self.model(x[0])
-
-
-        out = out.squeeze()      
-        if out[mask].shape[0] == 0:
-            # print("Skip training step")
-            return
-        loss = self.loss(out[mask], target[mask])
-
-
-        self.train_prop['loss'].append(loss)
-
-        known_target = target[mask]
-        known_out = out[mask]
-
-        for metric in self.ndcgk:
-            ndcg = retrieval_normalized_dcg(known_out, known_target, top_k = metric)
-            self.train_prop['nDCG@'+str(metric)].append(ndcg)
- 
-        relevant_out = known_out.squeeze()
-        relevant_target = (known_target.squeeze() > 0)
-      
-        
-        
-        for metric in self.recall:
             
-            rec = retrieval_recall(relevant_out, relevant_target, top_k = metric)
+            
+            if qid == IGNORE_INDEX:    
+                continue
 
-            self.train_prop['recall@'+str(metric)].append(rec)
+            x = x[:, :original_dims[sample_idx][0], :]
+            
+            A = A[:, :, :original_dims[sample_idx][1]]
 
-        for metric in self.prec:
-            prec = retrieval_precision(relevant_out, relevant_target, top_k=metric)
-            self.train_prop['precision@'+str(metric)].append(prec)
+            y = y[:, :original_dims[sample_idx][0]]
+            
+            # print(x.shape, A.shape, y.shape, query_feat.shape)
+        
+            
+            target = y[0].squeeze(-1)
 
-        return loss
+            mask = torch.nonzero(target!=IGNORE_INDEX)
+    
+
+            out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family)
+            
+            
+
+            if self.loss_type == 'mse':
+                
+                if out[mask].shape[0] == 0:
+                    continue
+
+                loss_ = self.loss(out[mask], target[mask].type(torch.float32))
+
+                loss += loss_
+
+                
+            elif self.loss_type == 'listnet' or self.loss_type == 'listmle':
+                target = torch.where(target == IGNORE_INDEX, torch.tensor(0, device = self.device), target)
+                
+                loss_ = self.loss(out, target)
+
+                loss += loss_
+
+
+            elif self.loss_type == 'ranknet' or self.loss_type == 'lambdarank':
+                
+                target = torch.where(target == IGNORE_INDEX, torch.tensor(0, device = self.device), target)
+                
+                target = F.pad(target, (0, MAX_DOCS - target.shape[0]), value=PADDED_Y_VALUE)
+                out_ = F.pad(out.clone(), (0, MAX_DOCS - out.shape[0]), value=PADDED_Y_VALUE)
+                
+                self.out = torch.cat([self.out, out_.unsqueeze(0)], dim=0)
+                self.target = torch.cat([self.target, target.unsqueeze(0).type(torch.float32)], dim=0)
+
+
+            # inter_df = get_doc_df(qid.cpu(), out.cpu().detach(), path)
+    
+            # self.doc_train_df = pd.concat([self.doc_train_df, inter_df], axis=0, ignore_index=True)
+    
+        
+        if self.loss_type == 'ranknet':
+            loss = lambdaLoss(self.out, self.target, weighing_scheme="rankNet_scheme", reduction_log="natural", padded_value_indicator=PADDED_Y_VALUE)
+            self.out = torch.tensor([], device = self.device)
+            self.target = torch.tensor([], device = self.device)
+
+        elif self.loss_type == 'lambdarank':
+            loss = lambdaLoss(self.out, self.target, weighing_scheme="lambdaRank_scheme", reduction_log="natural", padded_value_indicator=PADDED_Y_VALUE)
+            self.out = torch.tensor([], device = self.device)
+            self.target = torch.tensor([], device = self.device)
+        
+        
+
+        if loss == 0:
+            print("Skip training check....")
+            return
+
+        self.train_prop['loss'].append(loss/X.shape[0])
+
+        return loss/X.shape[0]
+
 
     def validation_step(self, batch, batch_idx):
         
@@ -199,154 +202,205 @@ class TrainingModule(pl.LightningModule):
             print("Skip validation check....")
             return
         
-        x, query_feat, A, y, _ = batch
+        X, Query_feat, Adj, Y, Qid, original_dims, index_to_docno_batch = batch
+    
 
-
-        # print(x.dtype)
-        # print(query_feat.dtype)
-        # print(A.dtype)
-        # print(y.dtype)
-        target = y[0].squeeze()
-
-        mask = torch.nonzero(target!=-1)
+        loss = 0
         
-        if self.aggr == 'concat':
-            rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
+        for sample_idx in range(X.shape[0]):
 
-            x = torch.cat((x, rep_query), dim = -1)
+            x = X[sample_idx].unsqueeze(0)
+            query_feat = Query_feat[sample_idx].unsqueeze(0)
+            A = Adj[sample_idx].unsqueeze(0)
+            y = Y[sample_idx].unsqueeze(0)
+            qid = Qid[sample_idx]
+            # print(x.shape, A.shape, y.shape, query_feat.shape)
 
-        elif self.aggr == 'sum':
+            if qid == IGNORE_INDEX:    
+                continue
 
-            # print(query_feat.shape)
-            rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
-            # print(rep_query.shape)
-            x = x + rep_query
-       
-        elif self.aggr == 'hadamart':
-        
-
-            rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
-        
-            # print(rep_query.shape)
-            x = x * rep_query
-
-        if self.model_family == 'gcn' or self.model_family == 'gat':
-
-            out = self.model(x[0], A[0])
-        else:
-            out = self.model(x[0])
-
-
-        out = out.squeeze()
-        if out[mask].shape[0] == 0:
-            # print("Skip training step")
-            return      
-        loss = self.loss(out[mask], target[mask])
-        self.test_prop['loss'].append(loss)
-        
-        known_target = target[mask]
-        known_out = out[mask]
-
-        for metric in self.ndcgk:
-            ndcg = retrieval_normalized_dcg(known_out, known_target, top_k = metric)
-            self.test_prop['nDCG@'+str(metric)].append(ndcg)
- 
-        relevant_out = known_out.squeeze()
-        relevant_target = (known_target.squeeze() > 0)
-      
-        
-        
-        for metric in self.recall:
+            x = x[:, :original_dims[sample_idx][0], :]
             
-            rec = retrieval_recall(relevant_out, relevant_target, top_k = metric)
+            A = A[:, :, :original_dims[sample_idx][1]]
 
-            self.test_prop['recall@'+str(metric)].append(rec)
+            y = y[:, :original_dims[sample_idx][0]]
+            
+            # print(x.shape, A.shape, y.shape, query_feat.shape)
+            
 
-        for metric in self.prec:
-            prec = retrieval_precision(relevant_out, relevant_target, top_k=metric)
-            self.test_prop['precision@'+str(metric)].append(prec)
+            target = y[0].squeeze(-1)
+
+            if not self.fast_train:
+                index_to_docno = {k: index_to_docno_batch[k][sample_idx] for k in range(original_dims[sample_idx][0])}
+            else:
+                with open ('data/msmarco_data/val_data_fast/' + 'metrics_directory/' + str(qid.item()) + '.json', 'r') as f:
+                    index_to_docno = json.load(f)
+            
+                
+                index_to_docno = {int(k): v for k, v in index_to_docno.items()}
+            # for k in index_to_docno:
+            #     print("VALIDATION: ", index_to_docno[k])
+            #     break
+            mask = torch.nonzero(target!=IGNORE_INDEX)
+
+            
+            out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family)
+
+
+            if self.loss_type == 'mse':
+                
+                if out[mask].shape[0] == 0:
+                    continue
+
+                loss_ = self.loss(out[mask], target[mask].type(torch.float32))
+
+                loss += loss_
+
+                
+            elif self.loss_type == 'listnet' or self.loss_type == 'listmle':
+                target = torch.where(target == IGNORE_INDEX, torch.tensor(0, device = self.device), target)
+                
+                loss_ = self.loss(out, target)
+
+                loss += loss_
+
+            elif self.loss_type == 'ranknet' or self.loss_type == 'lambdarank':
+                
+                target = torch.where(target == IGNORE_INDEX, torch.tensor(0, device = self.device), target)
+                
+                target = F.pad(target, (0, MAX_DOCS - target.shape[0]), value=PADDED_Y_VALUE)
+                out_ = F.pad(out.clone(), (0, MAX_DOCS - out.shape[0]), value=PADDED_Y_VALUE)
+
+                
+                self.out = torch.cat([self.out, out_.unsqueeze(0)], dim=0)
+                self.target = torch.cat([self.target, target.unsqueeze(0).type(torch.float32)], dim=0)
+
+
+            inter_df = get_doc_df(qid.cpu(), out.cpu().detach(), index_to_docno = index_to_docno)
+
+            self.doc_test_df = pd.concat([self.doc_test_df, inter_df], axis=0, ignore_index=True)
+ 
+            
+        
+        if self.loss_type == 'ranknet':
+            loss = lambdaLoss(self.out, self.target, weighing_scheme="rankNet_scheme", reduction_log="natural", padded_value_indicator=PADDED_Y_VALUE)
+            self.out = torch.tensor([], device = self.device)
+            self.target = torch.tensor([], device = self.device)
+
+        elif self.loss_type == 'lambdarank':
+            loss = lambdaLoss(self.out, self.target, weighing_scheme="lambdaRank_scheme", reduction_log="natural", padded_value_indicator=PADDED_Y_VALUE)
+            self.out = torch.tensor([], device = self.device)
+            self.target = torch.tensor([], device = self.device)
+        
+        
+
+        self.test_prop['loss'].append(loss)
+
 
         return loss
+        
     
     def test_step(self, batch, batch_idx):
-
-        x, query_feat, A, y, _ = batch
-
-        target = y[0].squeeze()
-
-        mask = torch.nonzero(target!=-1)
         
-        if self.aggr == 'concat':
-            rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
-
-            x = torch.cat((x, rep_query), dim = -1)
-
-        elif self.aggr == 'sum':
-            # print(query_feat.shape)
-            rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
-
-            # print(rep_query.shape)
-            x = x + rep_query
-
-        elif self.aggr == 'hadamart':
         
-            rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
+        X, Query_feat, Adj, Y, Qid, original_dims, index_to_docno_batch = batch
+    
+
+        loss = 0
         
-            # print(rep_query.shape)
-            x = x * rep_query
-       
+        for sample_idx in range(X.shape[0]):
 
-        if self.model_family == 'gcn' or self.model_family == 'gat':
-            out = self.model(x[0], A[0])
-        else:
-            out = self.model(x[0])
+            x = X[sample_idx].unsqueeze(0)
+            query_feat = Query_feat[sample_idx].unsqueeze(0)
+            A = Adj[sample_idx].unsqueeze(0)
+            y = Y[sample_idx].unsqueeze(0)
+            qid = Qid[sample_idx]
+            # print(x.shape, A.shape, y.shape, query_feat.shape)
 
-        out = out.squeeze()  
-        if out[mask].shape[0] == 0:
-            # print("Skip training step")
-            return    
-        loss = self.loss(out[mask], target[mask])
+            if qid == IGNORE_INDEX:    
+                continue
+
+            x = x[:, :original_dims[sample_idx][0], :]
+            
+            A = A[:, :, :original_dims[sample_idx][1]]
+
+            y = y[:, :original_dims[sample_idx][0]]
+            
+            # print(x.shape, A.shape, y.shape, query_feat.shape)
+            
+            target = y[0].squeeze(-1)
+
+            if not self.fast_train:
+                index_to_docno = {k: index_to_docno_batch[k][sample_idx] for k in range(original_dims[sample_idx][0])}
+            else:
+                with open ('data/msmarco_data/val_data_fast/' + 'metrics_directory/' + str(qid.item()) + '.json', 'r') as f:
+                    index_to_docno = json.load(f)
+                
+                index_to_docno = {int(k): v for k, v in index_to_docno.items()}
+            # for k in index_to_docno:
+            #     print("TEST: ", index_to_docno[k])
+            #     break
+
+            mask = torch.nonzero(target!=IGNORE_INDEX)
+
+            
+            out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family)    
+
+
+            if self.loss_type == 'mse':
+                
+                if out[mask].shape[0] == 0:
+                    continue
+
+                loss_ = self.loss(out[mask], target[mask].type(torch.float32))
+
+                loss += loss_
+
+                
+            elif self.loss_type == 'listnet' or self.loss_type == 'listmle':
+                target = torch.where(target == IGNORE_INDEX, torch.tensor(0, device = self.device), target)
+                
+                loss_ = self.loss(out, target)
+
+                loss += loss_
+
+            elif self.loss_type == 'ranknet' or self.loss_type == 'neuralndcg' or self.loss_type == 'lambdarank':
+                
+                target = torch.where(target == IGNORE_INDEX, torch.tensor(0, device = self.device), target)
+                
+                target = F.pad(target, (0, MAX_DOCS - target.shape[0]), value=PADDED_Y_VALUE)
+                out_ = F.pad(out.clone(), (0, MAX_DOCS - out.shape[0]), value=PADDED_Y_VALUE)
+
+                
+                self.out = torch.cat([self.out, out_.unsqueeze(0)], dim=0)
+                self.target = torch.cat([self.target, target.unsqueeze(0).type(torch.float32)], dim=0)
+
+
+            inter_df = get_doc_df(qid.cpu(), out.cpu().detach(), index_to_docno = index_to_docno)
+
+            self.doc_test_df = pd.concat([self.doc_test_df, inter_df], axis=0, ignore_index=True)
+            
+        
+        if self.loss_type == 'ranknet':
+            loss = lambdaLoss(self.out, self.target, weighing_scheme="rankNet_scheme", reduction_log="natural", padded_value_indicator=PADDED_Y_VALUE)
+            self.out = torch.tensor([], device = self.device)
+            self.target = torch.tensor([], device = self.device)
+
+        elif self.loss_type == 'lambdarank':
+            loss = lambdaLoss(self.out, self.target, weighing_scheme="lambdaRank_scheme", reduction_log="natural", padded_value_indicator=PADDED_Y_VALUE)
+            self.out = torch.tensor([], device = self.device)
+            self.target = torch.tensor([], device = self.device)
+        
+        
+
         self.test_prop['loss'].append(loss)
 
-        known_target = target[mask]
-        known_out = out[mask]
-
-        for metric in self.ndcgk:
-            ndcg = retrieval_normalized_dcg(known_out, known_target, top_k = metric)
-            self.test_prop['nDCG@'+str(metric)].append(ndcg)
- 
-        relevant_out = known_out.squeeze()
-        relevant_target = (known_target.squeeze() > 0)
-        
-        
-        for metric in self.recall:
-            
-            rec = retrieval_recall(relevant_out, relevant_target, top_k = metric)
-
-            self.test_prop['recall@'+str(metric)].append(rec)
-
-        for metric in self.prec:
-            prec = retrieval_precision(relevant_out, relevant_target, top_k=metric)
-            self.test_prop['precision@'+str(metric)].append(prec)
 
         return loss
-
+        
     def configure_optimizers(self):
     
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.wd)
         
         return self.optimizer
     
-
-# def nDCG(pred, target, K):
-#     topk = torch.topk(pred, K)
-#     sort_preds = pred[topk.indices]
-#     sort_targets = target[topk.indices]
-#     indexes = torch.zeros(sort_preds.shape[0]).long()
-
-
-
-#     ndcg = RetrievalNormalizedDCG()
-#     ndcgK = ndcg(sort_preds, sort_targets, indexes=indexes)
-
-#     return ndcgK

@@ -4,43 +4,27 @@ import torch
 import torch_geometric
 import pytorch_lightning as pl
 import os
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import KFold
 import re
+import json
+import pandas as pd
+import ir_measures
+from typing import Any, Dict, List, Set, Tuple
+import scipy
+import scipy.sparse
+import warnings
+from torch_geometric.utils import from_scipy_sparse_matrix
+import ir_measures
+from ir_measures import *
+
 
 
 def set_seed(seed_value):
-    # Set seed for NumPy
-    # np.random.seed(seed_value)
-
-    # # Set seed for Python's random module
-    # random.seed(seed_value)
-
-    # # Set seed for PyTorch
-    # torch.manual_seed(seed_value)
-
-    # # Set seed for GPU (if available)
-    # if torch.cuda.is_available():
-    #     torch.cuda.manual_seed(seed_value)
-    #     torch.cuda.manual_seed_all(seed_value)
-
-    #     # Set the deterministic behavior for cudNN
-    #     torch.backends.cudnn.deterministic = True
-    #     torch.backends.cudnn.benchmark = False
-
-    # # Set seed for PyTorch Geometric
-    # torch_geometric.seed_everything(seed_value)
 
     # Set seed for PyTorch Lightning
     pl.seed_everything(seed_value)
     print(f"{seed_value} have been correctly set!")
-    # if torch.cuda.is_available():
-    # #     # torch.cuda.manual_seed(seed_value)
-    # #     # torch.cuda.manual_seed_all(seed_value)
 
-    # #     # Set the deterministic behavior for cudNN
-    #     torch.backends.cudnn.deterministic = True
-    #     torch.backends.cudnn.benchmark = False
+
 def set_determinism_the_old_way(deterministic: bool):
     # determinism for cudnn
     torch.backends.cudnn.deterministic = deterministic
@@ -95,9 +79,9 @@ def retrieve_dataset_from_file(dataset_name):
         
         diz = {}
         adj_matr = torch.load(path + file + '/adjacency_matrix.pt')
-        doc_feat = torch.load(path + file + '/doc_feat_tensor.pt').float()
-        qrels_tensor = torch.load(path + file + '/qrels_tensor.pt').float()
-        query_tensor = torch.load(path + file + '/query_tensor.pt').float()
+        doc_feat = torch.load(path + file + '/doc_feat_tensor_new.pt').float()
+        qrels_tensor = torch.load(path + file + '/qrels_tensor_new.pt').float()
+        query_tensor = torch.load(path + file + '/query_tensor_new.pt').float()
         
         match = re.search(pattern, file)
         qid = int(match.group())
@@ -112,61 +96,241 @@ def retrieve_dataset_from_file(dataset_name):
 
     return dataset
 
+def get_doc_df(qid, scores, index_to_docno = None):
+
+    '''
+    Returns a dataframe with the following columns: query_id, doc_id, score, rank.
+    '''
+    qid_column = np.full(len(index_to_docno), qid,dtype=int)
+
+    rank = torch.arange(0, len(index_to_docno)) 
+
+    df = pd.DataFrame({'query_id': qid_column, 'doc_id': [index_to_docno[i] for i in range(len(scores))], 'score': scores.squeeze().numpy()})
+    
+    # They are sorted from the highest score to the lowest, than the rank column is applied.
+    df.sort_values(by=['score'], ascending=False, inplace=True)
+    df['rank'] = rank.numpy()
+    df.query_id = df.query_id.astype(int)
+    return df
 
 
-def split_train_val(elements, train_percentage=0.8, val_percentage=0.2, random_seed=None):
-   
-    # Ensure the percentages sum to 1.0
-    total_percentage = train_percentage + val_percentage
-    assert total_percentage <= 1.0, "The sum of train and validation percentages must be less than or equal to 1.0."
+def get_new_repr_docs(init_df):
+    diz_docs = {}
 
-    # Split the data
-    train_set, val_set = train_test_split(elements, test_size=val_percentage, random_state=random_seed)
+    for _, row in init_df.iterrows():
+        query_id = str(row['query_id'])
+        doc_id = row['doc_id']
+        score = float(row['score'])
 
-    return train_set, val_set
+        if query_id not in diz_docs:
+            diz_docs[query_id] = {}
 
-def k_fold_cross_validation(elements, k=5, random_seed=None):
-  
-    # Ensure k is less than or equal to the length of the data
-    assert k <= len(elements), "The number of folds (k) should be less than or equal to the length of the data."
+        diz_docs[query_id][doc_id] = score
 
-    # Initialize k-fold splitter
-    kfold = KFold(n_splits=k, shuffle=True, random_state=random_seed)
-
-    # Create an empty list to store fold sets
-    fold_sets = []
-
-    # Iterate over k folds
-    for train_indices, val_indices in kfold.split(elements):
-        train_set = [elements[i] for i in train_indices]
-        val_set = [elements[i] for i in val_indices]
-        fold_sets.append((train_set, val_set))
-
-    return fold_sets
+    return diz_docs
 
 
-# Save new indices
-# q_id_list = [i['q_ids'] for i in dataset]
-
-# train_indices = q_id_list[:int(dataset_length*train_perc)]
-
-# val_indices = q_id_list[int(dataset_length*train_perc): int(dataset_length*train_perc + dataset_length*val_perc)]
-
-# test_indices = q_id_list[int(dataset_length*train_perc + dataset_length*val_perc):]
+def get_key_from_value(dictionary, value):
+    for key, val in dictionary.items():
+        if val == value:
+            return key
+    return None  # Value not found
 
 
+def generate_corpus_subgraph_induced_by_query(                                          
+    topk_documents_df: pd.DataFrame,
+    complete_corpus_graph
+) -> Dict[str, List[str]]:
+    """
+    Constructs and refines a corpus subgraph, focusing on relationships within a document subset.
 
-# # Create json file for train split
-# train_indices_file = "./data/train_indices.json"
-# with open(train_indices_file, "w") as f:
-#     json.dump(train_indices, f)
+    Conceptual Steps:
+    1. Define Nodes: Identify and set the documents of interest as nodes in our subgraph. This step
+    uses the 'documents_df' to extract document numbers, which will serve as nodes.
 
-# # Create json file for validation split
-# val_indices_file = "./data/val_indices.json"
-# with open(val_indices_file, "w") as f:
-#     json.dump(val_indices, f)
+    2. Draw Edges: For each node, retrieve potential connections (edges) from the complete corpus graph.
+    This involves fetching neighbors for each document from the comprehensive graph structure.
 
-# # Create json file for test split
-# test_indices_file = "./data/test_indices.json"
-# with open(test_indices_file, "w") as f:
-#     json.dump(test_indices, f)
+    3. Filter Edges: Refine the connections by ensuring each node (document) only connects to other nodes
+    (documents) within our subset. This filtering process removes edges that lead outside the
+    specified subset, maintaining the subgraph's integrity.
+
+    4. Construct Subgraph: Populate the subgraph with nodes and their valid, filtered connections. This
+    results in a dictionary where each key is a document number, and its value is a list of neighbor
+    document numbers—all within the subset (i.e., valid neighbours).
+
+    Args:
+    - documents_df (pd.DataFrame): DataFrame containing documents of interest, identified by 'docno'.
+    - graph_reference (NpTopKCorpusGraph): The complete corpus graph for neighbor retrieval.
+
+    Returns:
+    - Dict[str, List[str]]: Represents the corpus subgraph. Keys are document numbers ('docno'),
+    and values are lists of neighbor document numbers, ensuring all are within the specified subset.
+    """
+
+    # Step 1: Define Nodes
+    # Extract a set of document numbers to serve as valid nodes within our subgraph.
+    valid_docnos = set(topk_documents_df['docno'])
+
+    # Initialize the subgraph
+    corpus_subgraph = {}
+    found = 0
+    for docno in valid_docnos:
+        # Step 2: Draw Edges
+        # Retrieve neighbors for the current document from the complete corpus graph.
+        # CHANGE
+        try:
+            all_neighbors = complete_corpus_graph.neighbours(docno)
+            found += 1
+        except LookupError:
+            warnings.warn(f"Document {docno} not found in the corpus graph.")
+            continue
+        # Step 3: Filter Edges
+        # Filter these neighbors to include only those also present in our subset (valid_docnos).
+        valid_neighbors = [neighbor for neighbor in all_neighbors if neighbor in valid_docnos]
+
+        # Step 4: Construct Subgraph
+        # Update our subgraph to include the current document and its filtered neighbors.
+        corpus_subgraph[docno] = valid_neighbors  # Populate subgraph
+    
+    return corpus_subgraph
+    
+def build_adjacency_matrix(subgraph: Dict[str, list], docno_to_index: Dict[str, int]) -> np.ndarray:
+    """
+    Generates an adjacency matrix from a subgraph and a mapping of document numbers to indices.
+
+    Parameters:
+    subgraph (Dict[str, list]): A dictionary representing the subgraph with document numbers as keys.
+    docno_to_index (Dict[str, int]): A dictionary mapping document numbers to their respective indices.
+
+    Returns:
+    np.ndarray: A symmetric adjacency matrix representing the graph.
+    """
+    # Error handling: Check if inputs are dictionaries
+    if not isinstance(subgraph, dict) or not isinstance(docno_to_index, dict):
+        raise ValueError("Both subgraph and docno_to_index must be dictionaries.")
+
+    # Determine the size of the adjacency matrix
+    # CHANGE
+    matrix_size = len(docno_to_index)
+    
+    adjacency_matrix = np.zeros((matrix_size, matrix_size), dtype=int)
+
+    # Iterate over each document and its neighbors in the subgraph
+    for doc, neighbors in subgraph.items():
+        if doc not in docno_to_index:
+            raise KeyError(f"Document number {doc} not found in docno_to_index mapping.")
+        doc_index = docno_to_index[doc]
+
+        for neighbor in neighbors:
+            if neighbor not in docno_to_index:
+                raise KeyError(f"Neighbor {neighbor} of document {doc} not found in docno_to_index mapping.")
+            
+            neighbor_index = docno_to_index[neighbor]
+
+            # Mark the connection in the matrix, ensuring symmetry
+            adjacency_matrix[doc_index, neighbor_index] = adjacency_matrix[neighbor_index, doc_index] = 1
+
+    return adjacency_matrix
+    
+    
+def adjacency_matrix_to_coo(adjacency_matrix: np.ndarray) -> torch.Tensor:
+    """
+    Converts an adjacency matrix to COO format using PyTorch Geometric.
+
+    Parameters:
+    adjacency_matrix (np.ndarray): The adjacency matrix to be converted.
+
+    Returns:
+    torch.Tensor: Edge index tensor in COO format.
+    """
+    # Convert the numpy adjacency matrix to a SciPy sparse matrix (COO format)
+    scipy_sparse_matrix = scipy.sparse.coo_matrix(adjacency_matrix)
+
+    # Convert the SciPy sparse matrix to PyTorch Geometric COO format
+    edge_index, edge_weight = from_scipy_sparse_matrix(scipy_sparse_matrix)
+
+    return edge_index
+
+
+def compute_output(x, A, query_feat, model, aggr, conv_type):
+                
+    rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
+
+    if aggr == 'concat':
+
+        x = torch.cat((x, rep_query), dim = -1)
+
+    elif aggr == 'sum':
+
+        x = x + rep_query
+
+    elif aggr == 'hadamard':
+    
+        x = x * rep_query
+
+
+    if conv_type != 'mlp':
+
+        out = model(x[0], A[0])
+        
+    else:
+
+        out = model(x[0])
+
+    out = out.squeeze()
+
+    return out
+
+
+def get_performance_metrics(path_qrels, val_indices, doc_df):
+    
+    '''
+    Get Performance Metrics computed through the ir_measures library...
+    '''
+    qrels_test = list(ir_measures.read_trec_qrels(f'{path_qrels}'))
+    qrels_test = [qrels_test[i] for i in range(len(qrels_test)) if qrels_test[i].query_id in list(map(str, val_indices))]
+    judged_indices = [qrels_test[i].query_id for i in range(len(qrels_test)) if qrels_test[i].query_id in list(map(str, val_indices))]
+
+
+    doc_df.doc_id = doc_df.doc_id.astype(str)
+    doc_df.query_id = doc_df.query_id.astype(str)
+    doc_df.score = doc_df.score.astype(float)
+    doc_df = doc_df[doc_df.query_id.isin(judged_indices)]
+    doc_test = doc_df
+
+    output_diz = ir_measures.calc_aggregate([nDCG@10, P(rel = 2)@3, AP(rel=2), RR(rel = 2), R(rel=2)@1000], qrels_test, doc_test)
+
+    return output_diz
+
+
+# Get the qrels file for the validation set.
+# qrels = qrels[['qid', 'iteration', 'docno', 'label']]
+
+# qrels.qid = qrels.qid.astype(str)
+# qrels.docno = qrels.docno.astype(str)
+# qrels.label = qrels.label.astype(int)
+# qrels.iteration = qrels.iteration.astype(int)
+
+# qrels.to_csv('data/msmarco_data/msmarco_data_qrels/qrels_val.txt', sep = ' ', index = False, header = False)
+
+
+# Get pre-computed bm25 scores.
+# pipeline = bm25 #>> pt.text.get_text(pt.get_dataset('irds:msmarco-passage'), 'text')
+# data_query = dataset.get_topics()
+
+# for i in range(0, len(data_query)):
+#     print(f"Currently processing query {i+1}/{len(data_query)}")
+#     query_id = data_query.loc[i].qid
+#     path_to_save = f'data/msmarco_data/msmarco_pre-computed_bm25/{mode}/{data_query.loc[i].qid}.json'
+    
+#     if os.path.exists(path_to_save):
+#         print("skipped")
+#         continue
+
+#     output = pipeline(data_query.iloc[i:i+1, :])
+    
+#     with open(path_to_save, 'w') as f:
+#         json.dump(output.to_dict(), f)
+
+

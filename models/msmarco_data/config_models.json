@@ -1,0 +1,46 @@
+{
+    "gcn": {
+        "model_path": "models/msmarco_data/gcn/bestTrue_gcn_hadamard_2_1_2_0.01_0_64_0.1_local_8_True_tctcolbert.pt",
+        "hidden_dim": 64,
+        "n_layers": 2,
+        "dropout_prob": 0.1, 
+        "conv_type": "gcn", 
+            "score": "True"
+        },
+        "gat": {
+            "model_path": "models/msmarco_data/gat/bestTrue_gat_hadamard_1_1_4_0.01_0_128_0.3_local_8_True_tctcolbert_1.pt",
+            "hidden_dim": 128,
+            "n_layers": 1,
+            "dropout_prob": 0.3,
+            "heads": 1, 
+            "conv_type": "gat", 
+            "score": "True"
+        },
+        "sage": {
+            "model_path": "models/msmarco_data/sage/bestTrue_sage_hadamard_1_1_3_0.01_0_64_0.1_local_8_True_tctcolbert_max.pt",
+            "hidden_dim": 64,
+            "n_layers": 1,
+            "dropout_prob": 0.1, 
+            "aggr_sage": "max",
+            "conv_type": "sage", 
+            "score": "True"
+        },
+        "gin": {
+            "model_path": "models/msmarco_data/gin/bestTrue_gin_hadamard_2_1_3_0.01_0_64_0.1_local_8_True_tctcolbert.pt",
+            "hidden_dim": 64,
+            "n_layers": 2,
+            "dropout_prob": 0.1,
+            "conv_type": "gin", 
+            "score": "True"
+        },
+        "signed": {
+            "model_path": "models/msmarco_data/signed/bestTrue_signed_hadamard_2_1_2_0.01_0_64_0.1_local_8_True_tctcolbert_1.pt",
+            "hidden_dim": 64,
+            "n_layers": 2,
+            "dropout_prob": 0.1,
+            "conv_type": "signed",
+            "negatives": 1, 
+            "score": "True"
+        }
+    }
+
