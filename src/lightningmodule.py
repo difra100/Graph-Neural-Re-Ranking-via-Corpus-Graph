@@ -6,8 +6,66 @@ import torch.nn.functional as F
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import Callback
-from allrank.models.losses.lambdaLoss import lambdaLoss
-from allrank.data.dataset_loading import PADDED_Y_VALUE
+
+try:
+    from allrank.models.losses.lambdaLoss import lambdaLoss
+    from allrank.data.dataset_loading import PADDED_Y_VALUE
+except ModuleNotFoundError:
+    PADDED_Y_VALUE = -1
+
+    def _discounts(size, device):
+        ranks = torch.arange(size, device=device, dtype=torch.float32)
+        return 1.0 / torch.log2(ranks + 2.0)
+
+    def lambdaLoss(
+        y_pred,
+        y_true,
+        weighing_scheme="lambdaRank_scheme",
+        reduction_log="natural",
+        padded_value_indicator=PADDED_Y_VALUE,
+        **_,
+    ):
+        losses = []
+        for pred_row, true_row in zip(y_pred, y_true):
+            valid = true_row != padded_value_indicator
+            pred = pred_row[valid]
+            target = true_row[valid].float()
+            if pred.numel() < 2:
+                losses.append(pred.sum() * 0.0)
+                continue
+
+            target_diff = target.unsqueeze(1) - target.unsqueeze(0)
+            preferred = target_diff > 0
+            if not preferred.any():
+                losses.append(pred.sum() * 0.0)
+                continue
+
+            pred_diff = pred.unsqueeze(1) - pred.unsqueeze(0)
+            pair_loss = F.softplus(-pred_diff)
+
+            if weighing_scheme == "lambdaRank_scheme":
+                _, pred_order = pred.sort(descending=True)
+                inv_rank = torch.empty_like(pred_order)
+                inv_rank[pred_order] = torch.arange(pred.numel(), device=pred.device)
+                discount = _discounts(pred.numel(), pred.device)[inv_rank]
+                ideal_target, _ = target.sort(descending=True)
+                ideal_dcg = ((2.0**ideal_target - 1.0) * _discounts(pred.numel(), pred.device)).sum()
+                gains = 2.0**target - 1.0
+                weights = (
+                    (gains.unsqueeze(1) - gains.unsqueeze(0)).abs()
+                    * (discount.unsqueeze(1) - discount.unsqueeze(0)).abs()
+                )
+                pair_loss = pair_loss * (weights / ideal_dcg.clamp_min(1e-8))
+
+            losses.append(pair_loss[preferred].mean())
+
+        if not losses:
+            return y_pred.sum() * 0.0
+
+        loss = torch.stack(losses).mean()
+        if reduction_log == "binary":
+            loss = loss / torch.log(torch.tensor(2.0, device=loss.device))
+        return loss
 
 from src.GNN import ListNetLoss, ListMLELoss
 from src.utils import *

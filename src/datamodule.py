@@ -5,6 +5,8 @@ import pytorch_lightning as pl
 import pyterrier as pt
 from pyterrier_dr import TctColBert, FlexIndex
 from pyterrier_t5 import MonoT5ReRanker
+from pyterrier_adaptive import NpTopKCorpusGraph
+from npids import Lookup
 
 import scipy
 import time
@@ -12,10 +14,73 @@ pt.init()
 import torch
 
 import os
+from pathlib import Path
 
 from src.config import *
 from src.utils import *
 import json
+
+
+class LegacyNpTopKCorpusGraph:
+    def __init__(self, graph_path, docnos_path, k=None):
+        graph_path = Path(graph_path)
+        with (graph_path / 'pt_meta.json').open('rt') as fin:
+            self.meta = json.load(fin)
+
+        self._data_k = self.meta['k']
+        if k is not None:
+            assert k <= self._data_k
+        self._k = self._data_k if k is None else k
+        self._edges_path = graph_path / 'edges.u32.np'
+        self._weights_path = graph_path / 'weights.f16.np'
+        self._docnos = Lookup(docnos_path)
+
+    @property
+    def edges_data(self):
+        edges = np.memmap(self._edges_path, mode='r', dtype=np.uint32).reshape(-1, self._data_k)
+        return edges[:, :self._k] if self._k != self._data_k else edges
+
+    @property
+    def weights_data(self):
+        weights = np.memmap(self._weights_path, mode='r', dtype=np.float16).reshape(-1, self._data_k)
+        return weights[:, :self._k] if self._k != self._data_k else weights
+
+    def neighbours(self, docid, weights=False):
+        as_str = isinstance(docid, str)
+        if as_str:
+            docid = self._docnos.inv[docid]
+        neigh = self.edges_data[docid]
+        if as_str:
+            neigh = self._docnos.fwd[neigh]
+        if weights:
+            return neigh, self.weights_data[docid]
+        return neigh
+
+
+def load_corpus_graph(flex_index, index_path, k):
+    try:
+        return flex_index.corpus_graph(k=k)
+    except TypeError as exc:
+        if 'abstract class CorpusGraph' not in str(exc):
+            raise
+
+    graph_path = index_path / f'corpusgraph_k{k}'
+    if not (graph_path / 'pt_meta.json').exists():
+        candidates = []
+        for path in index_path.glob('corpusgraph_k*/pt_meta.json'):
+            graph_k = int(path.parent.name.replace('corpusgraph_k', ''))
+            if graph_k >= k:
+                candidates.append((graph_k, path.parent))
+        if not candidates:
+            raise FileNotFoundError(f'No corpus graph with k >= {k} found under {index_path}')
+        graph_path = sorted(candidates)[0][1]
+
+    docnos_path = graph_path / 'docnos.npids'
+    if docnos_path.exists():
+        return NpTopKCorpusGraph(graph_path, k=k)
+
+    docnos_path = index_path / 'docnos.npids'
+    return LegacyNpTopKCorpusGraph(graph_path, docnos_path, k=k)
 
 
 
@@ -36,22 +101,24 @@ class Dataset_terrierlike(Dataset):
         self.embedding_name = embedding_name
 
         if self.embedding_name.startswith('tctcolbert'):
-            self.encoder = TctColBert('castorini/tct_colbert-msmarco' if self.embedding_name == 'tctcolbert' else 'castorini/tct_colbert-v2-hnp-msmarco', device='cuda' if WORKERS == 0 else 'cpu')
             self.emb_dim = 768
+            if not fast_train:
+                self.encoder = TctColBert('castorini/tct_colbert-msmarco' if self.embedding_name == 'tctcolbert' else 'castorini/tct_colbert-v2-hnp-msmarco', device='cuda' if WORKERS == 0 else 'cpu')
         
         # Other initial embeddings can be added here
-        self.corpus_name = 'data/msmarco-index_' + self.embedding_name
+        self.corpus_name = Path('data') / f'msmarco-index_{self.embedding_name}'
 
-        flex_index = FlexIndex(index_path= self.corpus_name)
+        flex_index = FlexIndex(str(self.corpus_name))
         self.indices = indices  
         # Generate the corpus graph using the corpus_graph method of FlexIndex.
-        self.graph = flex_index.corpus_graph(k=self.K_cg)
+        self.graph = load_corpus_graph(flex_index, self.corpus_name, self.K_cg)
 
         self.bm25_prec_path = bm25_prec
         
         self.fast = fast
+        self.fast_train = fast_train
 
-        if self.fast: 
+        if self.fast and not self.fast_train:
             self.payload = flex_index.payload()
 
         self.queries = self.dataset.get_topics()
@@ -61,7 +128,6 @@ class Dataset_terrierlike(Dataset):
         self.queries = self.queries[self.queries['qid'].isin(self.indices)]
         self.qrels = self.qrels[self.qrels['qid'].isin(self.indices)]
         
-        self.fast_train = fast_train
         self.train = train
 
         if self.train: 
@@ -225,6 +291,7 @@ class Dataset_terrierlike(Dataset):
 class DataModule_terrier(pl.LightningDataModule):
 
     def __init__(self, train_path, val_path, batch_size, K_cg = 8, fast_train = False, fast = True, mode = 'hp', embedding_name = None, train_indices = None, val_indices = None):
+        super().__init__()
 
         self.mode = mode  # "hp" or "test"
         self.train_path, self.val_path = train_path, val_path
