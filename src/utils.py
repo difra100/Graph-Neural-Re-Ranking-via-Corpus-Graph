@@ -234,6 +234,43 @@ def build_adjacency_matrix(subgraph: Dict[str, list], docno_to_index: Dict[str, 
     return adjacency_matrix
     
     
+def induced_weighted_edges(topk_documents_df, complete_corpus_graph, docno_to_index):
+    """Query-induced subgraph as a weighted COO edge list.
+
+    Uses the corpus graph's EDGE WEIGHTS (cosine similarity for the semantic graph,
+    BM25 similarity for the lexical graph) instead of a binary 0/1 adjacency. Returns
+    a symmetric, de-duplicated (edge_index [2, E], edge_weight [E]) pair whose columns
+    are aligned, so a model can attach the right weight to the right edge.
+    """
+    valid_docnos = set(topk_documents_df['docno'])
+    ew = {}  # (i, j) -> weight, de-duplicated and symmetric
+    for docno in valid_docnos:
+        try:
+            neigh, weights = complete_corpus_graph.neighbours(docno, weights=True)
+        except (LookupError, TypeError):
+            try:
+                neigh = complete_corpus_graph.neighbours(docno)
+                weights = [1.0] * len(neigh)
+            except LookupError:
+                continue
+        di = docno_to_index[docno]
+        for nb, w in zip(neigh, weights):
+            if nb in docno_to_index:
+                dj = docno_to_index[nb]
+                if di == dj:
+                    continue
+                ew[(di, dj)] = float(w)
+                ew[(dj, di)] = float(w)
+    if not ew:
+        return (torch.empty((2, 0), dtype=torch.long),
+                torch.empty((0,), dtype=torch.float))
+    items = list(ew.items())
+    edge_index = torch.tensor([[i for (i, _), _ in items],
+                               [j for (_, j), _ in items]], dtype=torch.long)
+    edge_weight = torch.tensor([w for _, w in items], dtype=torch.float)
+    return edge_index, edge_weight
+
+
 def adjacency_matrix_to_coo(adjacency_matrix: np.ndarray) -> torch.Tensor:
     """
     Converts an adjacency matrix to COO format using PyTorch Geometric.
@@ -253,9 +290,18 @@ def adjacency_matrix_to_coo(adjacency_matrix: np.ndarray) -> torch.Tensor:
     return edge_index
 
 
-def compute_output(x, A, query_feat, model, aggr, conv_type):
-                
+def compute_output(x, A, query_feat, model, aggr, conv_type, edge_weight=None):
+
     rep_query = torch.repeat_interleave(query_feat, repeats=x.shape[1], dim=1)
+
+    # Edge-GAT re-ranker: node features are the query-document interaction (hadamard,
+    # carrying TCT relevance); the corpus-graph EDGE WEIGHTS are the edge features; and
+    # the raw query conditions every layer via FiLM (inside the model).
+    if conv_type in ('edgegat', 'learned_edgegat'):
+        x_inter = x * rep_query                       # z_q ⊙ z_d per node
+        ew = edge_weight[0] if edge_weight is not None else None
+        out = model(x_inter[0], A[0], query_feat[0, 0], edge_weight=ew)
+        return out.squeeze()
 
     if aggr == 'concat':
 

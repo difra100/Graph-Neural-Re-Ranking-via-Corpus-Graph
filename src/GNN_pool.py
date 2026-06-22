@@ -5,10 +5,10 @@ from src.sparse_softmax import Sparsemax
 from torch.nn import Parameter
 from torch_geometric.data import Data
 from torch_geometric.nn.conv import MessagePassing, GCNConv
-# from torch_geometric.nn.pool.topk_pool import topk, filter_adj
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
-from torch_geometric.nn.pool.select import topk
-from torch_geometric.nn.pool.connect import filter_edges
+# PyG 2.3.1 keeps topk / filter_adj here (newer PyG split these into pool.select /
+# pool.connect; this codebase targets 2.3.1 per the README).
+from torch_geometric.nn.pool.topk_pool import topk, filter_adj
 from torch_geometric.utils import softmax, dense_to_sparse, add_remaining_self_loops
 from torch_scatter import scatter_add
 from torch_sparse import spspmm, coalesce
@@ -188,10 +188,10 @@ class HGPSLPool(torch.nn.Module):
 
         # Graph Pooling
         original_x = x
-        perm = topk.topk(score, self.ratio, batch)
+        perm = topk(score, self.ratio, batch)
         x = x[perm]
         batch = batch[perm]
-        induced_edge_index, induced_edge_attr = filter_edges.filter_adj(edge_index, edge_attr, perm, num_nodes=score.size(0))
+        induced_edge_index, induced_edge_attr = filter_adj(edge_index, edge_attr, perm, num_nodes=score.size(0))
 
         # Discard structure learning layer, directly return
         if self.sl is False:
@@ -212,7 +212,7 @@ class HGPSLPool(torch.nn.Module):
                 hop_data = self.neighbor_augment(hop_data)
             hop_edge_index = hop_data.edge_index
             hop_edge_attr = hop_data.edge_attr
-            new_edge_index, new_edge_attr = filter_edges.filter_adj(hop_edge_index, hop_edge_attr, perm, num_nodes=score.size(0))
+            new_edge_index, new_edge_attr = filter_adj(hop_edge_index, hop_edge_attr, perm, num_nodes=score.size(0))
 
             new_edge_index, new_edge_attr = add_remaining_self_loops(new_edge_index, new_edge_attr, 0, x.size(0))
             row, col = new_edge_index

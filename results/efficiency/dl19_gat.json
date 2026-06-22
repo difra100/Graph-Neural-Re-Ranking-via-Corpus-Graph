@@ -1,0 +1,27 @@
+{
+  "dataset": "dl19",
+  "conv_type": "gat",
+  "modality": "local",
+  "graph_type": "lexical",
+  "K": 1000,
+  "n_queries": 43,
+  "model_params": 246785,
+  "peak_gpu_mem_MB": 6.6,
+  "subgraph_extract_ms": {
+    "mean": 4.02,
+    "median": 4.06
+  },
+  "gnn_forward_ms": {
+    "mean": 11.11,
+    "median": 0.8
+  },
+  "online_total_ms": {
+    "mean": 15.13
+  },
+  "offline_corpus_graph": {
+    "corpusgraph_k16": {
+      "edges_MB": 565.9,
+      "weights_MB": 282.9
+    }
+  }
+}

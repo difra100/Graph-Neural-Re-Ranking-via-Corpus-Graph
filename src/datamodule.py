@@ -5,12 +5,13 @@ import pytorch_lightning as pl
 import pyterrier as pt
 from pyterrier_dr import TctColBert, FlexIndex
 from pyterrier_t5 import MonoT5ReRanker
-from pyterrier_adaptive import NpTopKCorpusGraph
+from pyterrier_adaptive.corpus_graph import NpTopKCorpusGraph
 from npids import Lookup
 
 import scipy
 import time
-pt.init()
+if not pt.started():
+    pt.init()
 import torch
 
 import os
@@ -57,6 +58,24 @@ class LegacyNpTopKCorpusGraph:
         return neigh
 
 
+def get_corpus_graph(graph_type, corpus_name, K_cg, corpusgraph_name='corpusgraph_bm25_k16',
+                     flex_index=None):
+    """Return the corpus graph used to induce query subgraphs.
+
+    graph_type:
+      'semantic' -> the local TCT-ColBERT kNN graph under data/msmarco-index_*/corpusgraph_k16
+                    (the original GNRR graph).
+      'lexical'  -> a BM25 kNN corpus graph downloaded from the pyterrier dataset,
+                    i.e. NpTopKCorpusGraph.from_dataset('msmarco_passage', <name>).to_limit_k(K_cg).
+    """
+    if graph_type == 'lexical':
+        g = NpTopKCorpusGraph.from_dataset('msmarco_passage', corpusgraph_name)
+        return g.to_limit_k(K_cg)
+    if flex_index is None:
+        flex_index = FlexIndex(str(corpus_name))
+    return load_corpus_graph(flex_index, Path(corpus_name), K_cg)
+
+
 def load_corpus_graph(flex_index, index_path, k):
     try:
         return flex_index.corpus_graph(k=k)
@@ -86,7 +105,7 @@ def load_corpus_graph(flex_index, index_path, k):
 
 class Dataset_terrierlike(Dataset):
 
-    def __init__(self, data_name, K_cg = 8, fast_train = False, fast = True, train = None, indices = None, bm25_prec = None, embedding_name = None):
+    def __init__(self, data_name, K_cg = 8, fast_train = False, fast = True, train = None, indices = None, bm25_prec = None, embedding_name = None, graph_type = 'semantic', corpusgraph_name = 'corpusgraph_bm25_k16'):
 
         # Train Data
         self.dataset = pt.get_dataset(data_name)
@@ -104,14 +123,23 @@ class Dataset_terrierlike(Dataset):
             self.emb_dim = 768
             if not fast_train:
                 self.encoder = TctColBert('castorini/tct_colbert-msmarco' if self.embedding_name == 'tctcolbert' else 'castorini/tct_colbert-v2-hnp-msmarco', device='cuda' if WORKERS == 0 else 'cpu')
+        elif self.embedding_name.startswith('contriever'):
+            self.emb_dim = 768
+            if not fast_train:
+                from src.contriever_encoder import ContrieverEncoder
+                _hf_name = ('facebook/contriever-msmarco' if self.embedding_name == 'contriever-msmarco'
+                            else 'facebook/contriever')
+                self.encoder = ContrieverEncoder(_hf_name, device='cuda' if WORKERS == 0 else 'cpu')
         
         # Other initial embeddings can be added here
         self.corpus_name = Path('data') / f'msmarco-index_{self.embedding_name}'
 
         flex_index = FlexIndex(str(self.corpus_name))
-        self.indices = indices  
-        # Generate the corpus graph using the corpus_graph method of FlexIndex.
-        self.graph = load_corpus_graph(flex_index, self.corpus_name, self.K_cg)
+        self.indices = indices
+        self.graph_type = graph_type
+        # Build the corpus graph (semantic TCT kNN, or lexical BM25 kNN from pyterrier).
+        self.graph = get_corpus_graph(graph_type, self.corpus_name, self.K_cg,
+                                      corpusgraph_name=corpusgraph_name, flex_index=flex_index)
 
         self.bm25_prec_path = bm25_prec
         
@@ -130,10 +158,11 @@ class Dataset_terrierlike(Dataset):
         
         self.train = train
 
-        if self.train: 
-            self.path = 'data/msmarco_data/train_data_fast/'
+        _suffix = '' if self.embedding_name in ('tctcolbert', 'tctcolbert2') else f'_{self.embedding_name}'
+        if self.train:
+            self.path = f'data/msmarco_data/train_data_fast{_suffix}/'
         else:
-            self.path = 'data/msmarco_data/val_data_fast/'
+            self.path = f'data/msmarco_data/val_data_fast{_suffix}/'
         
     def gat_sample_fast(self, idx):
         
@@ -148,7 +177,7 @@ class Dataset_terrierlike(Dataset):
         
         except FileNotFoundError: # Some file do not have any bm25 output
             
-            return torch.randn((MAX_DOCS, self.emb_dim)), torch.randn((1, self.emb_dim)), torch.zeros((2, MAX_EDGES), dtype=torch.int64), torch.randn((MAX_DOCS)), torch.tensor([IGNORE_INDEX]), torch.tensor([0, 0]), {k: '0' for k in range(MAX_DOCS)}
+            return torch.randn((MAX_DOCS, self.emb_dim)), torch.randn((1, self.emb_dim)), torch.zeros((2, MAX_EDGES), dtype=torch.int64), torch.randn((MAX_DOCS)), torch.tensor([IGNORE_INDEX]), torch.tensor([0, 0]), {k: '0' for k in range(MAX_DOCS)}, torch.zeros((MAX_EDGES,), dtype=torch.float)
 
         original_dim_x = x.shape[0]
         
@@ -159,6 +188,9 @@ class Dataset_terrierlike(Dataset):
         padded_edges = torch.zeros((2, MAX_EDGES), dtype=torch.int64)
         padded_edges[:, :A.shape[1]] = A
         A = padded_edges
+        # fast tensors store a binary adjacency (no weights) -> unit edge weights
+        edge_weight_fast = torch.zeros((MAX_EDGES,), dtype=torch.float)
+        edge_weight_fast[:original_dim_A] = 1.0
 
         y = torch.load(self.path + 'tensors/' + 'qid_' + qid + '_tensors/qrels_tensor_new.pt')
         y = torch.nn.functional.pad(y, (0, MAX_DOCS - original_dim_x), 'constant', 0)
@@ -169,12 +201,12 @@ class Dataset_terrierlike(Dataset):
         # Escape condition, whether we have only one document or 0, or also if the query has no relevant documents.
         if original_dim_x <= 1 or len(self.qrels[self.qrels['qid'] == qid]) == 0:
             # print(f'Query {qid} has no relevant documents')
-            return torch.randn((MAX_DOCS, self.emb_dim)), torch.randn((1, self.emb_dim)), torch.zeros((2, MAX_EDGES), dtype=torch.int64), torch.randn((MAX_DOCS)), torch.tensor([IGNORE_INDEX]), torch.tensor([0, 0]), {k: '0' for k in range(MAX_DOCS)}
+            return torch.randn((MAX_DOCS, self.emb_dim)), torch.randn((1, self.emb_dim)), torch.zeros((2, MAX_EDGES), dtype=torch.int64), torch.randn((MAX_DOCS)), torch.tensor([IGNORE_INDEX]), torch.tensor([0, 0]), {k: '0' for k in range(MAX_DOCS)}, torch.zeros((MAX_EDGES,), dtype=torch.float)
 
         # print(x.shape, query_feat.shape, A.shape, y[:MAX_DOCS].shape, torch.tensor([original_dim_x, original_dim_A]))
 
 
-        return x, query_feat, A, y[:MAX_DOCS], torch.tensor([int(q_ids)]), torch.tensor([original_dim_x, original_dim_A]), {k: '0' for k in range(MAX_DOCS)}
+        return x, query_feat, A, y[:MAX_DOCS], torch.tensor([int(q_ids)]), torch.tensor([original_dim_x, original_dim_A]), {k: '0' for k in range(MAX_DOCS)}, edge_weight_fast
 
     def get_sample_slow(self, idx):
 
@@ -208,7 +240,7 @@ class Dataset_terrierlike(Dataset):
 
         if max_num <= 1 or len(q_rels) == 0:
             # print(f'Query {q["qid"][0]} has no relevant documents')
-            return torch.randn((MAX_DOCS, self.emb_dim)), torch.randn((1, self.emb_dim)), torch.zeros((2, MAX_EDGES), dtype=torch.int64), torch.randn((MAX_DOCS)), torch.tensor([IGNORE_INDEX]), torch.tensor([0, 0]), {k: '0' for k in range(MAX_DOCS)}
+            return torch.randn((MAX_DOCS, self.emb_dim)), torch.randn((1, self.emb_dim)), torch.zeros((2, MAX_EDGES), dtype=torch.int64), torch.randn((MAX_DOCS)), torch.tensor([IGNORE_INDEX]), torch.tensor([0, 0]), {k: '0' for k in range(MAX_DOCS)}, torch.zeros((MAX_EDGES,), dtype=torch.float)
         
         # Encode Queries
         query_enc = self.encoder.encode_queries(q['query'])
@@ -244,12 +276,9 @@ class Dataset_terrierlike(Dataset):
                 doc_encs = self.encoder.encode_docs(docs)
      
 
-        corpus_sb = generate_corpus_subgraph_induced_by_query(topk_documents_df = topk_documents_df, complete_corpus_graph = self.graph)
+        # weighted query-induced subgraph (edge weights = cosine/BM25 similarity)
+        A, edge_weight = induced_weighted_edges(topk_documents_df, self.graph, docno_to_index)
 
-        adj_matrix = build_adjacency_matrix(corpus_sb, docno_to_index)
-
-        A = adjacency_matrix_to_coo(adj_matrix)
-        
         query_feat = (torch.from_numpy(query_enc).clone().unsqueeze(0)).detach()
 
         x = (torch.from_numpy(doc_encs).clone()).detach() 
@@ -269,11 +298,14 @@ class Dataset_terrierlike(Dataset):
         padded_edges = torch.zeros((2, MAX_EDGES), dtype=torch.int64)
         padded_edges[:, :A.shape[1]] = A
         A = padded_edges
+        padded_w = torch.zeros((MAX_EDGES,), dtype=torch.float)
+        padded_w[:edge_weight.shape[0]] = edge_weight
+        edge_weight = padded_w
 
         doc_mapping = index_to_docno
-        
+
         #print(f'Time taken for one batch: {end_ - start_} seconds')
-        return x, query_feat.squeeze(0), A, y[:MAX_DOCS], torch.tensor([int(q['qid'][0])]), torch.tensor([original_dim_x, original_dim_A]), doc_mapping
+        return x, query_feat.squeeze(0), A, y[:MAX_DOCS], torch.tensor([int(q['qid'][0])]), torch.tensor([original_dim_x, original_dim_A]), doc_mapping, edge_weight
 
         
         
@@ -290,7 +322,7 @@ class Dataset_terrierlike(Dataset):
 
 class DataModule_terrier(pl.LightningDataModule):
 
-    def __init__(self, train_path, val_path, batch_size, K_cg = 8, fast_train = False, fast = True, mode = 'hp', embedding_name = None, train_indices = None, val_indices = None):
+    def __init__(self, train_path, val_path, batch_size, K_cg = 8, fast_train = False, fast = True, mode = 'hp', embedding_name = None, train_indices = None, val_indices = None, graph_type = 'semantic', corpusgraph_name = 'corpusgraph_bm25_k16'):
         super().__init__()
 
         self.mode = mode  # "hp" or "test"
@@ -300,6 +332,8 @@ class DataModule_terrier(pl.LightningDataModule):
         self.embedding_name = embedding_name
         self.batch_size = batch_size
         self.fast_train = fast_train
+        self.graph_type = graph_type
+        self.corpusgraph_name = corpusgraph_name
 
         # Full Corpus
         self.K_cg = K_cg
@@ -313,7 +347,7 @@ class DataModule_terrier(pl.LightningDataModule):
         
         self.bm25_prec_path = f'./data/msmarco_data/msmarco_pre-computed_bm25/train/'
         
-        self.train_set = Dataset_terrierlike(self.train_path, self.K_cg, fast_train = self.fast_train, fast = self.fast, train = True, bm25_prec = self.bm25_prec_path, embedding_name = self.embedding_name, indices = self.train_indices)
+        self.train_set = Dataset_terrierlike(self.train_path, self.K_cg, fast_train = self.fast_train, fast = self.fast, train = True, bm25_prec = self.bm25_prec_path, embedding_name = self.embedding_name, indices = self.train_indices, graph_type = self.graph_type, corpusgraph_name = self.corpusgraph_name)
         
         return DataLoader(self.train_set, shuffle=True, batch_size=self.batch_size, num_workers = WORKERS, pin_memory = True)#, collate_fn = lambda batch: collate_fn(batch, queries=self.train_set.queries, qrels=self.train_set.qrels, bm25=self.bm25, payload=self.train_set.payload, corpus_graph=self.train_set.graph, fast=self.fast, encoder=self.encoder, add_text=self.add_text))
 
@@ -321,7 +355,7 @@ class DataModule_terrier(pl.LightningDataModule):
         
         self.bm25_prec_path = f'./data/msmarco_data/msmarco_pre-computed_bm25/val/'
 
-        self.val_set = Dataset_terrierlike(self.val_path, self.K_cg, fast = self.fast, fast_train = self.fast_train, train = False, bm25_prec=self.bm25_prec_path, embedding_name = self.embedding_name, indices = self.val_indices)
+        self.val_set = Dataset_terrierlike(self.val_path, self.K_cg, fast = self.fast, fast_train = self.fast_train, train = False, bm25_prec=self.bm25_prec_path, embedding_name = self.embedding_name, indices = self.val_indices, graph_type = self.graph_type, corpusgraph_name = self.corpusgraph_name)
         
         return DataLoader(self.val_set, shuffle=False, batch_size=self.batch_size, num_workers = WORKERS, pin_memory = True)
         

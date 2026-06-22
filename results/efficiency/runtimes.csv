@@ -1,0 +1,8 @@
+model,params,ms_single,ms_multi,mem_single_MB,mem_multi_MB
+GCN (lexical),263041,34.18,16.62,29.2,6.8
+GraphSAGE (lexical),160193,32.83,15.22,48.7,10.5
+GAT (lexical),246785,34.27,15.13,28.6,6.6
+GIN (lexical),123457,32.42,14.78,48.5,10.4
+SignedConv (lexical),295681,35.19,16.96,52.7,11.8
+EdgeGAT (5L),1413889,35.14,16.52,61.0,16.9
+Self-attention,363905,37.31,14.75,36.2,5.7

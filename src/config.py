@@ -51,7 +51,11 @@ if modality == 'global':
 
 # Constants
 
-WORKERS = 1
+# 0 = load data in the main process (NO forked DataLoader workers). This avoids the
+# intermittent "CUDA error: initialization error / DataLoader worker exited unexpectedly"
+# crash caused by forking after CUDA is initialized. With WORKERS==0 the datamodule also
+# loads the TCT encoder on GPU, which speeds up the slow (lexical) training path.
+WORKERS = 0
 MAX_DOCS = 1000
 MAX_EDGES = 50000
 IGNORE_INDEX = -1

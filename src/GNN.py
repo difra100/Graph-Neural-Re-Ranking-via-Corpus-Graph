@@ -284,8 +284,14 @@ class GNN_LG(nn.Module):
                 scores =  torch.arange(0, x_local.shape[0], 1, device = self.dev)
                 x_local = torch.cat((x_local, scores.unsqueeze(-1)), dim=-1)
 
-            # z_local = self.GNN(x_local, edge_index)
-            z_local = torch.zeros(x_local.shape[0], self.config.hidden_dim, device = self.dev)
+            # GNN branch. By default it is ACTIVE (this is the intended GNRR-local
+            # behavior). Set config.disable_gnn=True to zero it out, which gives the
+            # "no-GNN scorer" control (same capacity, no graph propagation) used in
+            # the ablation study.
+            if getattr(self.config, 'disable_gnn', False):
+                z_local = torch.zeros(x_local.shape[0], self.config.hidden_dim, device = self.dev)
+            else:
+                z_local = self.GNN(x_local, edge_index)
 
             z_tot = torch.cat((z_local, x_individual), dim = -1)
             y_pred = self.mlp_final(z_tot)
@@ -311,19 +317,14 @@ class GNN_LG(nn.Module):
 
             edge_index, _ = subgraph(top_indices, edge_index, num_nodes = x_individual.shape[0])
             z_local = self.GNN(x_individual.detach(), edge_index)
-            # print("z local: ", z_local.shape)
-            z_indices = z_local[top_indices]  
-            # print("z indices: ", z_indices.shape)          
-            y_pred = self.mlp_final(z_indices)
-            # print("y_pred: ", y_pred.shape)
-            # print("Scores indices top: ", scores[top_indices].shape)
-            # print("Before Scores: ", scores[top_indices])
-            scores[top_indices] += y_pred.squeeze()           
-            # print("After Scores: ", scores[top_indices])
-            # TODO Check whether they keep the correct order of magnitude
-            # TODO Check whether the gradient is flowing correctly
-            
-            return scores.unsqueeze(-1)
+            z_indices = z_local[top_indices]
+            head = self.mlp_final(z_indices).squeeze(-1)   # stage-2 score for top-K
+
+            # Cascade: rank the top-K purely by the GNN head (no TCT residual, which
+            # would otherwise be swamped by the large-magnitude TCT score), placing
+            # them above the remaining candidates which keep their TCT order.
+            from src.attention import cascade_place
+            return cascade_place(scores, top_indices, head).unsqueeze(-1)
 
         elif self.modality == 'global':
             

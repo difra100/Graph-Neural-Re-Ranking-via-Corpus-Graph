@@ -117,7 +117,7 @@ class Get_Metrics(Callback):
 
 class TrainingModule(pl.LightningModule):
 
-    def __init__(self, model, lr, wd, aggr, model_family, dataset_name, K_cg = 8, fast_train = False, qrels_folder = '', loss_type = 'mse', eval_indices= '', exp_name = ''):
+    def __init__(self, model, lr, wd, aggr, model_family, dataset_name, K_cg = 8, fast_train = False, qrels_folder = '', loss_type = 'mse', eval_indices= '', exp_name = '', sparsity_reg = 0.0, feat_recon_reg = 0.0):
         super().__init__()
         self.model = model
         self.lr = lr
@@ -132,6 +132,8 @@ class TrainingModule(pl.LightningModule):
         self.qrels_folder = qrels_folder
             
 
+        self.sparsity_reg = sparsity_reg
+        self.feat_recon_reg = feat_recon_reg
         self.best_metric = 0
         self.loss_type = loss_type
         self.eval_indices = eval_indices
@@ -163,11 +165,15 @@ class TrainingModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
 
-        X, Query_feat, Adj, Y, Qid, original_dims, index_to_docno_batch = batch
+        X, Query_feat, Adj, Y, Qid, original_dims, index_to_docno_batch, Edge_weight = batch
 
         
         loss = 0
-        
+        sparsity_acc = torch.tensor(0.0, device=self.device)
+        n_sparsity = 0
+        recon_acc = torch.tensor(0.0, device=self.device)
+        n_recon = 0
+
         for sample_idx in range(X.shape[0]):
 
             x = X[sample_idx].unsqueeze(0)
@@ -175,27 +181,39 @@ class TrainingModule(pl.LightningModule):
             A = Adj[sample_idx].unsqueeze(0)
             y = Y[sample_idx].unsqueeze(0)
             qid = Qid[sample_idx].item()
-  
-            
-            
-            if qid == IGNORE_INDEX:    
+
+
+
+            if qid == IGNORE_INDEX:
                 continue
 
             x = x[:, :original_dims[sample_idx][0], :]
-            
+
             A = A[:, :, :original_dims[sample_idx][1]]
 
+            ew = Edge_weight[sample_idx].unsqueeze(0)[:, :original_dims[sample_idx][1]]
+
             y = y[:, :original_dims[sample_idx][0]]
-            
+
             # print(x.shape, A.shape, y.shape, query_feat.shape)
-        
-            
+
+
             target = y[0].squeeze(-1)
 
             mask = torch.nonzero(target!=IGNORE_INDEX)
-    
 
-            out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family)
+
+            out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family, edge_weight=ew)
+
+            # SLAPS-style reconstruction auxiliary loss (dense gradient to all edges)
+            if self.feat_recon_reg > 0 and hasattr(self.model, '_recon_loss') and self.model._recon_loss is not None:
+                recon_acc = recon_acc + self.model._recon_loss
+                n_recon += 1
+
+            # sparsity regularisation for learned_edgegat
+            if self.sparsity_reg > 0 and hasattr(self.model, 'gumbel_selector'):
+                sparsity_acc = sparsity_acc + self.model.gumbel_selector.expected_edges()
+                n_sparsity += 1
             
             
 
@@ -245,6 +263,12 @@ class TrainingModule(pl.LightningModule):
         
         
 
+        if n_recon > 0:
+            loss = loss + self.feat_recon_reg * (recon_acc / n_recon)
+
+        if n_sparsity > 0:
+            loss = loss + self.sparsity_reg * (sparsity_acc / n_sparsity)
+
         if loss == 0:
             print("Skip training check....")
             return
@@ -260,7 +284,7 @@ class TrainingModule(pl.LightningModule):
             print("Skip validation check....")
             return
         
-        X, Query_feat, Adj, Y, Qid, original_dims, index_to_docno_batch = batch
+        X, Query_feat, Adj, Y, Qid, original_dims, index_to_docno_batch, Edge_weight = batch
     
 
         loss = 0
@@ -280,6 +304,8 @@ class TrainingModule(pl.LightningModule):
             x = x[:, :original_dims[sample_idx][0], :]
             
             A = A[:, :, :original_dims[sample_idx][1]]
+
+            ew = Edge_weight[sample_idx].unsqueeze(0)[:, :original_dims[sample_idx][1]]
 
             y = y[:, :original_dims[sample_idx][0]]
             
@@ -302,7 +328,7 @@ class TrainingModule(pl.LightningModule):
             mask = torch.nonzero(target!=IGNORE_INDEX)
 
             
-            out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family)
+            out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family, edge_weight=ew)
 
 
             if self.loss_type == 'mse':
@@ -361,7 +387,7 @@ class TrainingModule(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         
         
-        X, Query_feat, Adj, Y, Qid, original_dims, index_to_docno_batch = batch
+        X, Query_feat, Adj, Y, Qid, original_dims, index_to_docno_batch, Edge_weight = batch
     
 
         loss = 0
@@ -381,6 +407,8 @@ class TrainingModule(pl.LightningModule):
             x = x[:, :original_dims[sample_idx][0], :]
             
             A = A[:, :, :original_dims[sample_idx][1]]
+
+            ew = Edge_weight[sample_idx].unsqueeze(0)[:, :original_dims[sample_idx][1]]
 
             y = y[:, :original_dims[sample_idx][0]]
             
@@ -402,7 +430,7 @@ class TrainingModule(pl.LightningModule):
             mask = torch.nonzero(target!=IGNORE_INDEX)
 
             
-            out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family)    
+            out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family, edge_weight=ew)    
 
 
             if self.loss_type == 'mse':

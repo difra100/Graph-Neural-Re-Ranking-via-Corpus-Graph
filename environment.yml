@@ -1,0 +1,17 @@
+# Convenience conda spec for the GNRR environment.
+#
+# This creates the python 3.8 base; the CUDA-specific wheels (torch 1.12.1+cu113,
+# torch_geometric 2.3.1 + companions), the pinned IR stack, and the vendored
+# terrierteam plugins are best installed via:  bash scripts/setup_env.sh
+#
+# Recreate the base then run setup:
+#   conda env create -f environment.yml
+#   bash scripts/setup_env.sh        # ENV_NAME defaults to GNRR
+name: GNRR
+channels:
+  - defaults
+dependencies:
+  - python=3.8
+  - pip
+  # Everything else is installed by scripts/setup_env.sh (pinned in requirements.txt
+  # plus the torch/PyG wheels that need the CUDA-specific package indexes).

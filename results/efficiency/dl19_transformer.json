@@ -1,0 +1,27 @@
+{
+  "dataset": "dl19",
+  "conv_type": "transformer",
+  "modality": "single",
+  "graph_type": "semantic",
+  "K": 1000,
+  "n_queries": 43,
+  "model_params": 363905,
+  "peak_gpu_mem_MB": 5.7,
+  "subgraph_extract_ms": {
+    "mean": 3.89,
+    "median": 3.94
+  },
+  "gnn_forward_ms": {
+    "mean": 10.85,
+    "median": 0.66
+  },
+  "online_total_ms": {
+    "mean": 14.75
+  },
+  "offline_corpus_graph": {
+    "corpusgraph_k16": {
+      "edges_MB": 565.9,
+      "weights_MB": 282.9
+    }
+  }
+}

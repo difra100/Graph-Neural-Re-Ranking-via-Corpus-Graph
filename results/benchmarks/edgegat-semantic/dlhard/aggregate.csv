@@ -1,0 +1,2 @@
+RR(rel=2),nDCG@10,P(rel=2)@3,AP(rel=2),R(rel=2)@1000,pipeline,dataset
+0.501701451112641,0.3551720776091636,0.32,0.21186381760632664,0.6865570444393828,edgegat-semantic,dlhard

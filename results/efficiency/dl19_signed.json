@@ -1,0 +1,27 @@
+{
+  "dataset": "dl19",
+  "conv_type": "signed",
+  "modality": "local",
+  "graph_type": "lexical",
+  "K": 1000,
+  "n_queries": 43,
+  "model_params": 295681,
+  "peak_gpu_mem_MB": 11.8,
+  "subgraph_extract_ms": {
+    "mean": 4.23,
+    "median": 4.27
+  },
+  "gnn_forward_ms": {
+    "mean": 12.73,
+    "median": 1.91
+  },
+  "online_total_ms": {
+    "mean": 16.96
+  },
+  "offline_corpus_graph": {
+    "corpusgraph_k16": {
+      "edges_MB": 565.9,
+      "weights_MB": 282.9
+    }
+  }
+}
