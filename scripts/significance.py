@@ -1,91 +1,150 @@
-"""
-Significance testing for re-ranking comparisons (reviewer request).
+"""Significance testing for all re-ranking systems vs TCT-ColBERT baseline.
 
-Consumes the per-query CSVs written by scripts/evaluate_testset.py
-(results/<tag>/<dataset>/perquery.csv) and, for a chosen metric, compares a system
-against one or more baselines with:
-  - paired two-sided t-test
-  - paired bootstrap 95% CI on the mean per-query difference
-  - Fisher randomisation (permutation) test
+Uses pt.Experiment() with Bonferroni-corrected paired t-tests on pre-saved TREC runs.
+Covers Table 1 (GNN + self-attention re-rankers) and Table 2 (GAR + GNRR pipelines).
 
-Example:
-  python scripts/significance.py --dataset dl19 --metric nDCG@10 \
-      --system GNRR-gcn-multistage --baselines TCT-ColBERT GAR graph-smoothing-a0.5
+Prerequisites: reproduce_table1.sh and reproduce_table2.sh must have been run so that
+TREC run files exist under results/benchmarks/<tag>/<dataset>/run.csv.gz.
+
+Usage:
+    python scripts/significance.py                    # both tables, all datasets
+    python scripts/significance.py --table 1          # Table 1 only
+    python scripts/significance.py --dataset dl19     # one dataset only
+    python scripts/significance.py --out results/significance/
 """
 import argparse
+import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-from scipy import stats
+import pyterrier as pt
+import ir_measures
+
+if not pt.started():
+    pt.init()
+
+# ── dataset helpers ──────────────────────────────────────────────────────────
+
+DATASET_IRDS = {
+    "dl19":   "irds:msmarco-passage/trec-dl-2019/judged",
+    "dl20":   "irds:msmarco-passage/trec-dl-2020/judged",
+    "dlhard": "irds:msmarco-passage/trec-dl-hard",
+}
+
+METRICS = [
+    ir_measures.AP(rel=2),
+    ir_measures.nDCG@10,
+    ir_measures.RR(rel=2),
+]
 
 
-def load_perquery(out_dir, tag, dataset, metric):
-    f = Path(out_dir) / tag / dataset / "perquery.csv"
+def load_run(tag, dataset, out_dir="results/benchmarks"):
+    """Load a saved TREC run into a PyTerrier-compatible DataFrame."""
+    f = Path(out_dir) / tag / dataset / "run.csv.gz"
     if not f.exists():
-        raise FileNotFoundError(f"missing per-query results: {f}")
+        return None
     df = pd.read_csv(f)
-    df = df[df["measure"] == metric]
-    return df.set_index("query_id")["value"]
+    # normalise column names and types to PyTerrier standard (qid/docno as str)
+    df = df.rename(columns={"query_id": "qid", "doc_id": "docno"})
+    df["qid"]   = df["qid"].astype(str)
+    df["docno"] = df["docno"].astype(str)
+    if "rank" not in df.columns:
+        df = df.sort_values(["qid", "score"], ascending=[True, False])
+        df["rank"] = df.groupby("qid").cumcount() + 1
+    return df
 
 
-def paired_bootstrap_ci(diff, n_boot=10000, seed=0):
-    rng = np.random.default_rng(seed)
-    means = diff[rng.integers(0, len(diff), size=(n_boot, len(diff)))].mean(axis=1)
-    return float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+# ── system definitions ───────────────────────────────────────────────────────
+
+# (display_name, run_tag)
+TABLE1 = [
+    ("TCT-ColBERT",    "TCT-ColBERT"),
+    ("+Self-Attention","GNRR-transformer-single"),
+    ("+GCN",           "GNRR-gcn-local"),
+    ("+GraphSAGE",     "GNRR-sage-local"),
+    ("+GAT",           "GNRR-gat-local"),
+    ("+GIN",           "GNRR-gin-local"),
+    ("+SignedConv",     "GNRR-signed-local"),
+]
+
+TABLE2 = [
+    ("TCT-ColBERT",    "TCT-ColBERT"),
+    ("GAR",            "GAR-semantic"),
+    ("GAR+GCN",        "GAR+gcn-semantic"),
+    ("GAR+GraphSAGE",  "GAR+sage-semantic"),
+    ("GAR+GAT",        "GAR+gat-semantic"),
+    ("GAR+GIN",        "GAR+gin-semantic"),
+    ("GAR+SignedConv", "GAR+signed-semantic"),
+]
 
 
-def randomization_test(a, b, n_perm=10000, seed=0):
-    rng = np.random.default_rng(seed)
-    diff = a - b
-    obs = diff.mean()
-    signs = rng.integers(0, 2, size=(n_perm, len(diff))) * 2 - 1
-    perm = (signs * np.abs(diff)).mean(axis=1)
-    return float((np.abs(perm) >= abs(obs)).mean())
+def run_experiment(systems, dataset, out_dir, save_path=None):
+    """Run pt.Experiment for a list of (name, tag) systems on one dataset."""
+    pt_ds  = pt.get_dataset(DATASET_IRDS[dataset])
+    topics = pt_ds.get_topics()
+    qrels  = pt_ds.get_qrels()
 
+    loaded, names = [], []
+    missing = []
+    for name, tag in systems:
+        run = load_run(tag, dataset, out_dir)
+        if run is None:
+            missing.append(tag)
+        else:
+            loaded.append(run)
+            names.append(name)
 
-def compare(system, baseline, out_dir, dataset, metric):
-    s = load_perquery(out_dir, system, dataset, metric)
-    b = load_perquery(out_dir, baseline, dataset, metric)
-    common = s.index.intersection(b.index)
-    s, b = s.loc[common].values, b.loc[common].values
-    diff = s - b
-    t, p_t = stats.ttest_rel(s, b)
-    lo, hi = paired_bootstrap_ci(diff)
-    p_rand = randomization_test(s, b)
-    return {
-        "system": system, "baseline": baseline, "metric": metric, "dataset": dataset,
-        "n_q": len(common),
-        "mean_system": round(float(s.mean()), 4),
-        "mean_baseline": round(float(b.mean()), 4),
-        "delta": round(float(diff.mean()), 4),
-        "rel_%": round(100 * float(diff.mean()) / float(b.mean()), 2) if b.mean() else float("nan"),
-        "boot_ci_95": f"[{lo:+.4f}, {hi:+.4f}]",
-        "p_ttest": round(float(p_t), 4),
-        "p_randomization": round(float(p_rand), 4),
-        "sig@0.05": "yes" if p_rand < 0.05 else "no",
-    }
+    if missing:
+        print(f"  [skip] missing runs (run reproduce scripts first): {missing}", file=sys.stderr)
+
+    if len(loaded) < 2:
+        print(f"  [skip] need at least baseline + 1 system, got {len(loaded)}", file=sys.stderr)
+        return None
+
+    # find the TCT-ColBERT baseline index
+    baseline_idx = next((i for i, n in enumerate(names) if n == "TCT-ColBERT"), 0)
+
+    result = pt.Experiment(
+        loaded,
+        topics,
+        qrels,
+        eval_metrics=METRICS,
+        names=names,
+        baseline=baseline_idx,
+        correction="bonferroni",
+        round=3,
+    )
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        result.to_csv(save_path, index=False)
+        print(f"  [saved] {save_path}")
+    return result
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset", required=True)
-    ap.add_argument("--metric", default="nDCG@10")
-    ap.add_argument("--system", required=True)
-    ap.add_argument("--baselines", nargs="+", required=True)
+    ap.add_argument("--table",   choices=["1", "2", "both"], default="both")
+    ap.add_argument("--dataset", choices=["dl19", "dl20", "dlhard", "all"], default="all")
     ap.add_argument("--out_dir", default="results/benchmarks")
-    ap.add_argument("--save", default="")
+    ap.add_argument("--save",    default="results/significance")
     args = ap.parse_args()
 
-    rows = [compare(args.system, b, args.out_dir, args.dataset, args.metric)
-            for b in args.baselines]
-    df = pd.DataFrame(rows)
-    pd.set_option("display.width", 220, "display.max_columns", 30)
-    print(df.to_string(index=False))
-    if args.save:
-        Path(args.save).parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(args.save, index=False)
-        print(f"\n[saved] {args.save}")
+    datasets = ["dl19", "dl20", "dlhard"] if args.dataset == "all" else [args.dataset]
+    tables   = {"1": [1], "2": [2], "both": [1, 2]}[args.table]
+
+    pd.set_option("display.width", 220, "display.max_columns", 40, "display.float_format", "{:.3f}".format)
+
+    for tbl in tables:
+        systems = TABLE1 if tbl == 1 else TABLE2
+        print(f"\n{'='*70}")
+        print(f"  TABLE {tbl} — significance vs TCT-ColBERT (Bonferroni-corrected t-test)")
+        print(f"{'='*70}")
+        for ds in datasets:
+            print(f"\n  --- {ds.upper()} ---")
+            save_path = f"{args.save}/table{tbl}_{ds}.csv" if args.save else None
+            result = run_experiment(systems, ds, args.out_dir, save_path=save_path)
+            if result is not None:
+                print(result.to_string(index=False))
 
 
 if __name__ == "__main__":

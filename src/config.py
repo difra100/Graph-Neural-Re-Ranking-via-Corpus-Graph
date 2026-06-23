@@ -3,7 +3,7 @@ import torch
 dataset_name = '' # BM25_1300_K_16_TENS_DIM_F_64-20240226T140712Z-001 / 'BM25_1300_K_8_TENS_DIM_F_64-20240226T133020Z-001'
 
 project_name = 'Graph Neural Re-Ranking via Corpus Graph'
-entity_name = 'difra00'
+entity_name = None   # set to your W&B entity to enable sweep logging
 
 # System Setting
 device = 'cuda' if torch.cuda.is_available() else 'cpu'

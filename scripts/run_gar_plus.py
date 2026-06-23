@@ -73,6 +73,7 @@ def main():
     ap.add_argument("--model_path", default="")
     ap.add_argument("--hidden_dim", type=int, default=0)
     ap.add_argument("--n_layers", type=int, default=0)
+    ap.add_argument("--n_layers_mlp", type=int, default=0)
     ap.add_argument("--heads", type=int, default=1)
     ap.add_argument("--embedding_name", default="tctcolbert2")
     ap.add_argument("--k", type=int, default=1000, help="BM25 candidate depth")
@@ -115,6 +116,8 @@ def main():
             cfg["hidden_dim"] = args.hidden_dim
         if args.n_layers:
             cfg["n_layers"] = args.n_layers
+        if args.n_layers_mlp:
+            cfg["n_layers_mlp"] = args.n_layers_mlp
         config = EvalConfig.from_dict(cfg)
         scorer = GNRR_Scorer(config, fast=True)
         pipe = bm25 >> gar >> GNRR(scorer, graph, flex_index)

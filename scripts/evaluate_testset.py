@@ -146,6 +146,8 @@ def build_pipeline(args):
             cfg_dict["hidden_dim"] = args.hidden_dim
         if args.n_layers:
             cfg_dict["n_layers"] = args.n_layers
+        if args.n_layers_mlp:
+            cfg_dict["n_layers_mlp"] = args.n_layers_mlp
         if args.K_multistage:
             cfg_dict["K_multistage"] = args.K_multistage
         config = EvalConfig.from_dict(cfg_dict)
@@ -182,6 +184,7 @@ def main():
                     help="multi-stage cascade: model re-ranks only TCT top-k (0 = full 1-stage)")
     ap.add_argument("--hidden_dim", type=int, default=0)
     ap.add_argument("--n_layers", type=int, default=0)
+    ap.add_argument("--n_layers_mlp", type=int, default=0)
     ap.add_argument("--heads", type=int, default=1)
     ap.add_argument("--aggr", default="hadamard")
     ap.add_argument("--fast", action="store_true", default=True)

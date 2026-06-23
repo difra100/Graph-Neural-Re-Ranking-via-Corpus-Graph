@@ -26,11 +26,15 @@ for ds in "${DATASETS[@]}"; do
     run "${PY}" scripts/evaluate_testset.py --dataset "${ds}" --pipeline tct \
         --embedding_name "${EMB}"
 
-    # --- GNRR variants (checkpoints + hyperparams come from config_models.json) ---
+    # --- GNRR GNN variants (checkpoints + hyperparams from config_models.json) ---
     for cv in "${CONVS[@]}"; do
         run "${PY}" scripts/evaluate_testset.py --dataset "${ds}" --pipeline gnrr \
             --conv_type "${cv}" --modality "${MODALITY}" --embedding_name "${EMB}"
     done
+
+    # --- Self-attention: trained with modality=single (not local) ---
+    run "${PY}" scripts/evaluate_testset.py --dataset "${ds}" --pipeline gnrr \
+        --conv_type transformer --modality single --embedding_name "${EMB}"
 done
 
 echo ""
