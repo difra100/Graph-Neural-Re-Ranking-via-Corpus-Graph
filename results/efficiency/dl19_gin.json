@@ -2,21 +2,21 @@
   "dataset": "dl19",
   "conv_type": "gin",
   "modality": "local",
-  "graph_type": "lexical",
+  "graph_type": "semantic",
   "K": 1000,
   "n_queries": 43,
   "model_params": 123457,
-  "peak_gpu_mem_MB": 10.4,
+  "peak_gpu_mem_MB": 49.2,
   "subgraph_extract_ms": {
-    "mean": 3.95,
-    "median": 3.98
+    "mean": 22.24,
+    "median": 22.61
   },
   "gnn_forward_ms": {
-    "mean": 10.83,
-    "median": 0.72
+    "mean": 13.48,
+    "median": 1.65
   },
   "online_total_ms": {
-    "mean": 14.78
+    "mean": 35.72
   },
   "offline_corpus_graph": {
     "corpusgraph_k16": {

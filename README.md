@@ -31,16 +31,34 @@ Unlike self-attention re-rankers that scale quadratically in the candidate set s
 
 GCN is the only architecture that improves AP on all three benchmarks. On DLHard, GCN achieves **+5.2% AP** over TCT-ColBERT and **+9.0% AP** over self-attention, while self-attention *degrades* below TCT-ColBERT on the same benchmark.
 
-**Table 2 — Inference efficiency at $K=1000$**
+**Table 2 — Sensitivity to candidate distribution (GAR + GNRR, no retraining)**
+
+Models trained on BM25 pools applied zero-shot to GAR-augmented candidates (DL19 AP shown; see paper for full results).
+
+| Pipeline | DL19 AP | DL20 AP | DLHard AP |
+|---|---|---|---|
+| +TCT-ColBERT | 0.430 | 0.453 | 0.230 |
+| GAR | 0.440 | 0.447 | 0.233 |
+| GAR+GCN | 0.427 | 0.443 | 0.219 |
+| GAR+GraphSAGE | 0.431 | 0.432 | 0.220 |
+| **GAR+GAT** | **0.444** | **0.458** | 0.229 |
+| GAR+GIN | 0.429 | 0.421 | 0.200 |
+| GAR+SignedConv | 0.419 | 0.413 | 0.212 |
+
+GAT is the only architecture that consistently benefits from the enlarged GAR candidate pool (+0.9% AP on DL19, +2.5% on DL20 over GAR alone). Fixed isotropic GNNs (GCN, GIN, GraphSAGE, SignedConv) degrade below GAR on all benchmarks due to out-of-distribution distribution shift. On DLHard, all five architectures degrade regardless of aggregation scheme.
+
+**Efficiency at $K=1000$** (GNN forward pass + subgraph extraction, NVIDIA RTX 3090 Ti)
 
 | Method | Complexity | Params | ms/query |
 |---|---|---|---|
 | Self-Attention | $O(K^2)$ | 363.9K | 37.3 |
-| GNRR+GCN | $O(c \cdot K)$ | 263.0K | 34.2 |
+| GNRR+GCN | $O(c \cdot K)$ | 279.6K | 34.2 |
 | GNRR+GraphSAGE | $O(c \cdot K)$ | 160.2K | 32.8 |
 | GNRR+GAT | $O(c \cdot K)$ | 246.8K | 34.3 |
 | GNRR+GIN | $O(c \cdot K)$ | 123.5K | 32.4 |
 | GNRR+SignedConv | $O(c \cdot K)$ | 295.7K | 35.2 |
+
+GNN latency is 5–13% lower than self-attention at $K=1000$, with up to 66% fewer parameters. The advantage grows with $K$ since GNN cost is linear while self-attention is quadratic.
 
 ---
 

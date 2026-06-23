@@ -2,21 +2,21 @@
   "dataset": "dl19",
   "conv_type": "signed",
   "modality": "local",
-  "graph_type": "lexical",
+  "graph_type": "semantic",
   "K": 1000,
   "n_queries": 43,
   "model_params": 295681,
-  "peak_gpu_mem_MB": 11.8,
+  "peak_gpu_mem_MB": 53.4,
   "subgraph_extract_ms": {
-    "mean": 4.23,
-    "median": 4.27
+    "mean": 22.25,
+    "median": 22.65
   },
   "gnn_forward_ms": {
-    "mean": 12.73,
-    "median": 1.91
+    "mean": 16.09,
+    "median": 4.29
   },
   "online_total_ms": {
-    "mean": 16.96
+    "mean": 38.34
   },
   "offline_corpus_graph": {
     "corpusgraph_k16": {

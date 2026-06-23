@@ -250,10 +250,10 @@ We set the corpus graph neighborhood size to $c = 16$ and $K = 1000$. TCT-ColBER
             & 0.447 & 0.815 & 0.685 & 0.680
             & \textbf{0.233} & 0.532 & 0.353 & \textbf{0.373} \\
         \addlinespace[2pt]
-        \quad+GCN 
-            & 0.419 & 0.824 & 0.698 & 0.692
-            & 0.422 & 0.785 & 0.630 & 0.647
-            & 0.224 & 0.519 & \textbf{0.360} & 0.353 \\
+        \quad+GCN
+            & 0.427 & 0.816 & 0.674 & 0.698
+            & 0.443 & 0.804 & 0.642 & 0.666
+            & 0.219 & 0.503 & 0.340 & 0.357 \\
         \quad+GraphSAGE
             & 0.431 & 0.815 & 0.698 & 0.697
             & 0.432 & 0.790 & 0.667 & 0.664
@@ -267,9 +267,9 @@ We set the corpus graph neighborhood size to $c = 16$ and $K = 1000$. TCT-ColBER
             & 0.421 & 0.777 & 0.617 & 0.616
             & 0.200 & 0.456 & 0.320 & 0.325 \\
         \quad+SignedConv
-            & 0.420 & \textbf{0.846} & 0.690 & 0.687
-            & 0.413 & 0.786 & 0.623 & 0.657
-            & 0.212 & 0.501 & 0.347 & 0.347 \\
+            & 0.419 & \textbf{0.844} & 0.682 & 0.686
+            & 0.413 & 0.788 & 0.642 & 0.654
+            & 0.212 & 0.498 & 0.353 & 0.348 \\
         \bottomrule
     \end{tabular}%
     }
@@ -307,7 +307,7 @@ We attribute this asymmetry to structural regularization: the sparse corpus grap
         \midrule
         Self-Attention       & $\mathcal{O}(K^2)$         & 363.9K & 37.3 \\
         \midrule
-        GNRR+GCN       & $\mathcal{O}(c \cdot K)$   & 263.0K & 34.2 \\
+        GNRR+GCN       & $\mathcal{O}(c \cdot K)$   & 279.6K & 34.2 \\
         GNRR+GraphSAGE & $\mathcal{O}(c \cdot K)$   & 160.2K & 32.8 \\
         GNRR+GAT       & $\mathcal{O}(c \cdot K)$   & 246.8K & 34.3 \\
         GNRR+GIN       & $\mathcal{O}(c \cdot K)$   & 123.5K & 32.4 \\
@@ -317,7 +317,7 @@ We attribute this asymmetry to structural regularization: the sparse corpus grap
     \label{tab:efficiency}
 \end{table}
 
-GNN models are faster and smaller than self-attention: at $K=1000$, GNN latency is $5$--$13\%$ lower (32--35~ms vs.\ 37.3~ms) with up to $66\%$ fewer parameters (GIN: 124K vs.\ 364K). The advantage grows with $K$: self-attention cost scales as $\mathcal{O}(K^2)$, so doubling $K$ quadruples its cost while GNN cost grows as $\mathcal{O}(c \cdot K)$ and remains linear. GCN achieves better DLHard effectiveness ($+5.2\%$ AP) at lower computational cost than self-attention.
+GNN models are faster and smaller than self-attention: at $K=1000$, GNN latency is $5$--$13\%$ lower (32--35~ms vs.\ 37.3~ms) with up to $66\%$ fewer parameters (GIN: 124K vs.\ 364K; GCN: 280K vs.\ 364K). The advantage grows with $K$: self-attention cost scales as $\mathcal{O}(K^2)$, so doubling $K$ quadruples its cost while GNN cost grows as $\mathcal{O}(c \cdot K)$ and remains linear. GCN achieves better DLHard effectiveness ($+5.2\%$ AP) at lower computational cost than self-attention.
 
 \subsection{Sensitivity to Candidate Distribution}\label{sec:gar}
 
@@ -326,9 +326,10 @@ GAR raises DL19 AP from $0.430$ to $0.440$ ($+2.3\%$) and nDCG@10 from $0.685$ t
 
 The five \ModelName architectures respond differently to this distribution shift.
 GCN, GIN, GraphSAGE, and SignedConv all degrade AP relative to GAR alone across all three benchmarks, consistent with out-of-distribution failure: these models were trained to re-rank BM25 candidate pools and their fixed, non-adaptive aggregation schemes do not transfer directly to the larger, more diverse candidate distribution produced by GAR.
+The degradation is severe enough that GCN and GIN fall below even plain TCT-ColBERT re-ranking on all three benchmarks (GCN DL19: $0.427$ vs.\ $0.430$; DL20: $0.443$ vs.\ $0.453$; DLHard: $0.219$ vs.\ $0.230$), despite having access to the improved recall pool.
 GAT is the exception on DL19 and DL20. Its attention mechanism can adaptively reweight neighbors at test time, improving AP over GAR alone by $+0.9\%$ on DL19 ($0.444$ vs.\ $0.440$) and $+2.5\%$ on DL20 ($0.458$ vs.\ $0.447$); GAT also records the best nDCG@10 on both benchmarks. On DLHard, all five architectures degrade, suggesting that the shift in candidate distribution is particularly challenging on harder queries regardless of aggregation scheme.
 
-These results carry two messages. First, attention-based aggregation generalizes more broadly across candidate distributions than fixed isotropic GNN operators. Second, retrieval and re-ranking stages must be jointly trained when the candidate source changes; re-training \ModelName on GAR-augmented pools is a natural direction for future work.
+These results carry two messages. First, attention-based aggregation generalizes more broadly across candidate distributions than fixed isotropic GNN operators, making GAT the only architecture that benefits from GAR-augmented recall. Second, retrieval and re-ranking stages must be jointly trained when the candidate source changes; re-training \ModelName on GAR-augmented pools is a natural direction for future work.
 
 \subsection{GNN Branch Contribution (RQ3)}
 

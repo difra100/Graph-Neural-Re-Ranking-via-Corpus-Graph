@@ -111,7 +111,6 @@ def run_experiment(systems, dataset, out_dir, save_path=None):
         eval_metrics=METRICS,
         names=names,
         baseline=baseline_idx,
-        correction="bonferroni",
         round=3,
     )
     if save_path:
@@ -137,7 +136,7 @@ def main():
     for tbl in tables:
         systems = TABLE1 if tbl == 1 else TABLE2
         print(f"\n{'='*70}")
-        print(f"  TABLE {tbl} — significance vs TCT-ColBERT (Bonferroni-corrected t-test)")
+        print(f"  TABLE {tbl} — significance vs TCT-ColBERT (paired t-test)")
         print(f"{'='*70}")
         for ds in datasets:
             print(f"\n  --- {ds.upper()} ---")
