@@ -11,7 +11,7 @@ from npids import Lookup
 import scipy
 import time
 if not pt.started():
-    pt.init()
+    pt.init(no_download=True)  # skip Maven DNS lookup; use cached JARs
 import torch
 
 import os

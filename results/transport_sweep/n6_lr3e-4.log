@@ -1,0 +1,49 @@
+Traceback (most recent call last):
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/urllib/request.py", line 1354, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/http/client.py", line 1256, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/http/client.py", line 1302, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/http/client.py", line 1251, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/http/client.py", line 1011, in _send_output
+    self.send(msg)
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/http/client.py", line 951, in send
+    self.connect()
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/http/client.py", line 1418, in connect
+    super().connect()
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/http/client.py", line 922, in connect
+    self.sock = self._create_connection(
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/socket.py", line 799, in create_connection
+    for res in getaddrinfo(host, port, 0, SOCK_STREAM):
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/socket.py", line 930, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+socket.gaierror: [Errno -3] Temporary failure in name resolution
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "main.py", line 16, in <module>
+    from src.datamodule import *
+  File "/home/peppe/Desktop/Università/PhD/Projects/Graph-Neural-Re-Ranking-via-Corpus-Graph/src/datamodule.py", line 14, in <module>
+    pt.init()
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/site-packages/pyterrier/__init__.py", line 109, in init
+    classpathTrJars, hlpr_ver = setup_terrier(HOME_DIR, version, helper_version = helper_version, boot_packages=boot_packages, force_download=not no_download)
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/site-packages/pyterrier/bootstrap.py", line 296, in setup_terrier
+    terrier_version = mavenresolver.latest_version_num(TERRIER_PKG, "terrier-assemblies")
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/site-packages/pyterrier/mavenresolver.py", line 66, in latest_version_num
+    with urllib.request.urlopen(url_str) as url:
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/urllib/request.py", line 222, in urlopen
+    return opener.open(url, data, timeout)
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/urllib/request.py", line 525, in open
+    response = self._open(req, data)
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/urllib/request.py", line 542, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/urllib/request.py", line 502, in _call_chain
+    result = func(*args)
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/urllib/request.py", line 1397, in https_open
+    return self.do_open(http.client.HTTPSConnection, req,
+  File "/home/peppe/anaconda3/envs/GNRR/lib/python3.8/urllib/request.py", line 1357, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error [Errno -3] Temporary failure in name resolution>

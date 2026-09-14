@@ -173,6 +173,8 @@ class TrainingModule(pl.LightningModule):
         n_sparsity = 0
         recon_acc = torch.tensor(0.0, device=self.device)
         n_recon = 0
+        phys_acc = {}
+        n_phys = 0
 
         for sample_idx in range(X.shape[0]):
 
@@ -204,6 +206,11 @@ class TrainingModule(pl.LightningModule):
 
 
             out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family, edge_weight=ew)
+
+            if hasattr(self.model, 'diagnostics'):
+                for k, v in self.model.diagnostics.items():
+                    phys_acc[k] = phys_acc.get(k, 0.0) + v
+                n_phys += 1
 
             # SLAPS-style reconstruction auxiliary loss (dense gradient to all edges)
             if self.feat_recon_reg > 0 and hasattr(self.model, '_recon_loss') and self.model._recon_loss is not None:
@@ -269,6 +276,11 @@ class TrainingModule(pl.LightningModule):
         if n_sparsity > 0:
             loss = loss + self.sparsity_reg * (sparsity_acc / n_sparsity)
 
+        if n_phys > 0:
+            for k, v in phys_acc.items():
+                self.log(f'phys/{k}', v / n_phys, on_step=False, on_epoch=True,
+                         prog_bar=True, batch_size=X.shape[0])
+
         if loss == 0:
             print("Skip training check....")
             return
@@ -279,16 +291,18 @@ class TrainingModule(pl.LightningModule):
 
 
     def validation_step(self, batch, batch_idx):
-        
+
         if len(self.train_prop['loss']) == 0:
             print("Skip validation check....")
             return
-        
+
         X, Query_feat, Adj, Y, Qid, original_dims, index_to_docno_batch, Edge_weight = batch
-    
+
 
         loss = 0
-        
+        phys_acc = {}
+        n_phys = 0
+
         for sample_idx in range(X.shape[0]):
 
             x = X[sample_idx].unsqueeze(0)
@@ -330,9 +344,13 @@ class TrainingModule(pl.LightningModule):
             
             out = compute_output(x, A, query_feat, self.model, self.aggr, self.model_family, edge_weight=ew)
 
+            if hasattr(self.model, 'diagnostics'):
+                for k, v in self.model.diagnostics.items():
+                    phys_acc[k] = phys_acc.get(k, 0.0) + v
+                n_phys += 1
 
             if self.loss_type == 'mse':
-                
+
                 if out[mask].shape[0] == 0:
                     continue
 
@@ -340,7 +358,7 @@ class TrainingModule(pl.LightningModule):
 
                 loss += loss_
 
-                
+
             elif self.loss_type == 'listnet' or self.loss_type == 'listmle':
                 target = torch.where(target == IGNORE_INDEX, torch.tensor(0, device = self.device), target)
                 
@@ -378,12 +396,16 @@ class TrainingModule(pl.LightningModule):
         
         
 
+        if n_phys > 0:
+            for k, v in phys_acc.items():
+                self.log(f'phys_val/{k}', v / n_phys, on_step=False, on_epoch=True,
+                         prog_bar=True, batch_size=X.shape[0])
+
         self.test_prop['loss'].append(loss)
 
-
         return loss
-        
-    
+
+
     def test_step(self, batch, batch_idx):
         
         

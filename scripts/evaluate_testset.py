@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import pyterrier as pt
 if not pt.started():
-    pt.init()
+    pt.init(no_download=True)  # skip Maven DNS lookup; use cached JARs
 
 import ir_measures
 from ir_measures import nDCG, AP, RR, P, R

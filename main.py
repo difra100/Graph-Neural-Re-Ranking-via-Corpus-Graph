@@ -95,6 +95,7 @@ parser.add_argument("--sparsity_reg", type = float, default = 0.0, help = "λ_s:
 parser.add_argument("--model_path", type = str, default = "", help = "Optional checkpoint to warm-start from (loaded with strict=False; use to init learned_edgegat from a trained edgegat backbone).")
 parser.add_argument("--feat_recon_reg", type = float, default = 0.0, help = "λ_dae: SLAPS-style auxiliary reconstruction loss weight (learned_edgegat only). Provides dense gradient to all edges, fixing supervision starvation from sparse ranking labels.")
 parser.add_argument("--mask_ratio", type = float, default = 0.15, help = "Fraction of input feature dims to mask for reconstruction auxiliary task (learned_edgegat only).")
+parser.add_argument("--n_steps", type = int, default = 6, help = "Number of Euler integration steps for the transport (conv_type='transport') model.")
 
 
 # System Settings
@@ -226,6 +227,13 @@ if not sweep:
                 print(f"[warm-start] loaded {len(ckpt_compat)}/{len(ckpt)} shape-matched keys from {args.model_path}")
                 if len(ckpt_compat) == 0:
                     print("[warm-start] WARNING: no keys matched — checkpoint architecture differs too much; training from scratch.")
+        elif conv_type == 'transport':
+            from src.physics_gnn import PhysicsTransportGNN
+            model = PhysicsTransportGNN(
+                input_dim=n_feats,
+                n_steps=args.n_steps,
+                dropout=args.dropout_prob,
+            ).to(device)
         elif modality == 'single':
             if conv_type != 'mlp':
                 model = GNN_NR(n_feats if aggr != 'concat' else 2*n_feats, args, device = device)
@@ -264,6 +272,10 @@ if not sweep:
         if graph_type != 'semantic':
             exp_name += f"_{graph_type}"
 
+        # transport sweep: different n_steps must not overwrite each other
+        if conv_type == 'transport':
+            exp_name += f"_ns{args.n_steps}"
+
         tot_dir = prefix + exp_name + '/'
 
         checkpoint_callback = ModelCheckpoint(dirpath = tot_dir, save_top_k=1, monitor="nDCG@10 on test", mode="max")
@@ -300,6 +312,7 @@ if not sweep:
         trainer = pl.Trainer(
             max_epochs=epochs,  # maximum number of epochs.
             gpus=num_gpus,  # the number of gpus we have at our disposal.
+            gradient_clip_val=1.0,  # prevents NaN spikes in physics-parameter grads
             default_root_dir=tot_dir, callbacks=[compute_metrics, early_stop, checkpoint_callback, live_save], deterministic = True if device == 'cpu' else False, logger = wandb_logger
         )
 
@@ -379,6 +392,13 @@ def compute_runs(config):
             model = EdgeGATReranker(n_feats, config, device = device)
         elif config.conv_type == 'learned_edgegat':
             model = LearnedEdgeGATReranker(n_feats, config, device = device)
+        elif config.conv_type == 'transport':
+            from src.physics_gnn import PhysicsTransportGNN
+            model = PhysicsTransportGNN(
+                input_dim=n_feats,
+                n_steps=getattr(config, 'n_steps', 6),
+                dropout=config.dropout_prob,
+            ).to(device)
         elif modality == 'single':
             if conv_type != 'mlp':
                 model = GNN_NR(n_feats if config.aggr != 'concat' else 2*n_feats, config, device = device)
@@ -424,6 +444,7 @@ def compute_runs(config):
         trainer = pl.Trainer(
             max_epochs=epochs if aggr != 'tctcolbert' else 1,  # maximum number of epochs.
             gpus=num_gpus,  # the number of gpus we have at our disposal.
+            gradient_clip_val=1.0,
             default_root_dir= tot_dir, callbacks=[compute_metrics, early_stop, checkpoint_callback],
             enable_checkpointing=True, deterministic = True if device == 'cpu' else False, logger = wandb_logger
         )

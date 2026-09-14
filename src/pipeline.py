@@ -70,6 +70,7 @@ class EvalConfig:
     K_multistage: int = 200               # multistage subgraph size
     norm: bool = False                    # edgegat: BatchNorm (True) vs LayerNorm (False)
     disable_gnn: bool = False             # no-GNN control (local modality)
+    n_steps: int = 6                      # transport: Euler integration steps
     # global-modality extras (kept for completeness)
     pooling: str = "hierarchical"
     pooling_ratio: float = 0.5
@@ -110,6 +111,13 @@ def build_model(config: EvalConfig, n_feats: int, device: str):
     elif config.conv_type == "learned_edgegat":
         from src.learned_graph import LearnedEdgeGATReranker
         model = LearnedEdgeGATReranker(n_feats, config, device=device)
+    elif config.conv_type == "transport":
+        from src.physics_gnn import PhysicsTransportGNN
+        model = PhysicsTransportGNN(
+            input_dim=n_feats,
+            n_steps=getattr(config, 'n_steps', 6),
+            dropout=config.dropout_prob,
+        ).to(device)
     elif config.modality in ("local", "multistage", "global"):
         model = GNN_LG(input_features, config, modality=config.modality,
                        conv_type=config.conv_type, device=device)
@@ -189,13 +197,13 @@ class GNRR_Scorer(pt.Transformer):
     def _doc_embeddings(self, cand_df, query_dim, payload):
         """Doc embeddings aligned with cand_df row order (payload when fast)."""
         if self.fast and payload is not None:
-            encs = np.empty((len(cand_df), query_dim), dtype=np.float32)
-            try:
-                for i, docno in enumerate(cand_df["docno"].tolist()):
+            encs = np.zeros((len(cand_df), query_dim), dtype=np.float32)
+            for i, docno in enumerate(cand_df["docno"].tolist()):
+                try:
                     encs[i] = payload[1][payload[0][docno]]
-                return encs
-            except (IndexError, KeyError):
-                pass
+                except (IndexError, KeyError, LookupError):
+                    pass  # zero embedding for docs absent from index
+            return encs
         return self.encoder.encode_docs(cand_df[self.text_field])
 
     def _score_set(self, cand_df, cand_encs, query_enc, corpus_graph):

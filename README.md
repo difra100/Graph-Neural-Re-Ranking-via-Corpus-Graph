@@ -1,5 +1,7 @@
 # Cross-Document Neural Re-Ranking via Query-Induced Subgraphs
 
+> **Accepted at [AIxIA 2026](https://aixia2026.unipg.it/)** — the 24th International Conference of the Italian Association for Artificial Intelligence, Perugia, Italy, October 6–9, 2026.
+
 Neural re-rankers typically score query-document pairs independently, discarding relationships among candidates in the retrieved set. This repository contains the code for **GNRR** (Graph Neural Re-Ranking), a framework that extracts a sparse, query-induced subgraph from a pre-computed semantic corpus graph and applies Graph Neural Networks to propagate cross-document signals.
 
 Unlike self-attention re-rankers that scale quadratically in the candidate set size ($O(K^2)$), GNRR achieves $O(c \cdot K)$ online complexity, where $c$ is the fixed corpus graph degree and $K$ the candidate set size.
@@ -8,7 +10,7 @@ Unlike self-attention re-rankers that scale quadratically in the candidate set s
 
 ## Pipeline overview
 
-![GNRR pipeline](figures/pipeline_graphical_overview)
+![GNRR pipeline](figures/pipeline_graphical_overview.png)
 
 **Offline:** TCT-ColBERT encodes the entire corpus once and connects each document to its $c$ nearest semantic neighbors, building corpus graph $\mathcal{G}$. **Online:** BM25 retrieves the top-$K$ candidates; the candidate set induces a sparse subgraph of $\mathcal{G}$; a GNN propagates cross-document signals over that subgraph; a learned scorer produces the final re-ranking.
 
@@ -192,6 +194,7 @@ Trains a multi-layer TransformerEncoder re-ranker on the same TCT-ColBERT featur
 │   ├── run_multiseed.sh           # Multi-seed evaluation
 │   └── collect_results.py         # Aggregate CSVs into tables
 ├── figures/
+│   ├── pipeline_graphical_overview.png
 │   └── pipeline_graphical_overview.pdf
 ├── data/                          # Corpus, graphs, tensors (not tracked)
 ├── models/                        # Checkpoints (not tracked)
@@ -200,3 +203,25 @@ Trains a multi-layer TransformerEncoder re-ranker on the same TCT-ColBERT featur
 
 ---
 
+## Citation
+
+If you use this code or build on these results, please cite the AIxIA 2026 paper:
+
+```bibtex
+@inproceedings{gnrr2026,
+  title     = {Cross-Document Neural Re-Ranking via Query-Induced Subgraphs},
+  author    = {TODO: author list},
+  booktitle = {Proceedings of the 24th International Conference of the Italian
+               Association for Artificial Intelligence (AIxIA 2026)},
+  year      = {2026},
+  address   = {Perugia, Italy},
+  publisher = {Springer},
+  series    = {Lecture Notes in Computer Science}
+}
+```
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -34,6 +34,7 @@ class GNN_NR(nn.Module):
             input_features += 1
 
         self.input_features = input_features
+
         if self.conf.conv_type == 'gcn':
             layers = []
             layers.append(GCNConv(input_features, self.conf.hidden_dim).to(device))
@@ -109,7 +110,7 @@ class GNN_NR(nn.Module):
                 for layer in module:
                     if isinstance(layer, nn.Linear):
                         layer.reset_parameters()
-        
+
         for el in self.layers:
             if isinstance(el, activation) or isinstance(el, nn.Dropout):
                 continue
@@ -117,7 +118,7 @@ class GNN_NR(nn.Module):
                 el.reset_parameters()
 
     def forward(self, x, edge_index):
-    
+
         # for el in self.layers:
         #     for k in el.parameters():
         #         if len(k.shape) == 2:

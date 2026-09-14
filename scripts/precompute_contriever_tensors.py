@@ -66,11 +66,18 @@ def process_split(split, encoder, bm25_base, src_base, dst_base, topics_df, add_
 
     # Process each qid that has a source fast-tensor directory
     qid_dirs = sorted(src_tensor_dir.glob('qid_*_tensors'))
-    print(f'[{split}] Processing {len(qid_dirs)} queries...')
-
     topics_map = dict(zip(topics_df['qid'].astype(str), topics_df['query']))
 
-    for i, src_qdir in enumerate(qid_dirs):
+    # count already-done up front so the user can see resume state
+    n_done = sum(
+        1 for d in qid_dirs if (dst_tensor_dir / d.name / 'doc_feat_tensor_new.pt').exists()
+    ) if skip_existing else 0
+    n_todo = len(qid_dirs) - n_done
+    print(f'[{split}] {len(qid_dirs)} total queries — '
+          f'{n_done} already done, {n_todo} to encode', flush=True)
+
+    encoded = 0
+    for src_qdir in qid_dirs:
         qid = src_qdir.name.replace('qid_', '').replace('_tensors', '')
         dst_qdir = dst_tensor_dir / src_qdir.name
 
@@ -98,10 +105,11 @@ def process_split(split, encoder, bm25_base, src_base, dst_base, topics_df, add_
             if src_f.exists():
                 shutil.copy2(src_f, dst_qdir / fname)
 
-        if (i + 1) % 500 == 0:
-            print(f'  [{split}] {i+1}/{len(qid_dirs)} done', flush=True)
+        encoded += 1
+        if encoded % 500 == 0:
+            print(f'  [{split}] encoded {encoded}/{n_todo}', flush=True)
 
-    print(f'[{split}] Done → {dst_tensor_dir}')
+    print(f'[{split}] Done — encoded {encoded} new queries → {dst_tensor_dir}', flush=True)
 
 
 def main():

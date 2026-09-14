@@ -21,7 +21,7 @@ PY="${PYTHON:-$(conda info --base)/envs/GNRR/bin/python}"
 
 EMB="${EMB:-contriever}"   # or contriever-msmarco
 M="models/msmarco_data"
-SEEDS=3; PATIENCE=7; LENGTH_TRAIN=14994
+PATIENCE=20; LENGTH_TRAIN=14994
 
 for CONV in gcn gat edgegat; do
     for NLAYERS in 2 3; do
@@ -32,7 +32,12 @@ for CONV in gcn gat edgegat; do
         esac
         LR=0.01; WD=0.0; HEADS=1
 
-        CKPT="${M}/hadamard_${NLAYERS}_789_${LR}_${WD}_${HIDDEN}_${DROPOUT}_${CONV}_local_1_${EMB}.pt"
+        # gat appends _{heads} to exp_name in main.py; other models do not
+        if [ "${CONV}" = "gat" ]; then
+            CKPT="${M}/hadamard_${NLAYERS}_789_${LR}_${WD}_${HIDDEN}_${DROPOUT}_${CONV}_local_1_${EMB}_${HEADS}.pt"
+        else
+            CKPT="${M}/hadamard_${NLAYERS}_789_${LR}_${WD}_${HIDDEN}_${DROPOUT}_${CONV}_local_1_${EMB}.pt"
+        fi
         if [ -f "${CKPT}" ]; then
             echo "skip (exists): ${CKPT}"
             continue
@@ -54,7 +59,6 @@ for CONV in gcn gat edgegat; do
             --fast_train True \
             --length_train "${LENGTH_TRAIN}" \
             --save_best_model True \
-            --n_seeds "${SEEDS}" \
             --patience "${PATIENCE}" \
             --loss_type lambdarank \
             --device cuda
@@ -70,8 +74,12 @@ for CONV in gcn gat edgegat; do
             gat)    HIDDEN=128; DROPOUT=0.1 ;;
             edgegat) HIDDEN=128; DROPOUT=0.1 ;;
         esac
-        LR=0.01; WD=0.0
-        CKPT="${M}/hadamard_${NLAYERS}_789_${LR}_${WD}_${HIDDEN}_${DROPOUT}_${CONV}_local_1_${EMB}.pt"
+        LR=0.01; WD=0.0; HEADS=1
+        if [ "${CONV}" = "gat" ]; then
+            CKPT="${M}/hadamard_${NLAYERS}_789_${LR}_${WD}_${HIDDEN}_${DROPOUT}_${CONV}_local_1_${EMB}_${HEADS}.pt"
+        else
+            CKPT="${M}/hadamard_${NLAYERS}_789_${LR}_${WD}_${HIDDEN}_${DROPOUT}_${CONV}_local_1_${EMB}.pt"
+        fi
         [ -f "${CKPT}" ] || continue
         "${PY}" scripts/evaluate_testset.py \
             --dataset dl19 --pipeline gnrr \

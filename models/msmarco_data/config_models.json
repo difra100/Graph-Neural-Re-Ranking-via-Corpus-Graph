@@ -55,5 +55,11 @@
         "dropout_prob": 0.1,
         "conv_type": "transformer",
         "score": "True"
+    },
+    "transport": {
+        "model_path": "models/msmarco_data/hadamard_2_789_0.0003_1e-05_128_0.1_transport_multistage_1_tctcolbert_100_ns4.pt",
+        "n_steps": 4,
+        "dropout_prob": 0.1,
+        "conv_type": "transport"
     }
 }
